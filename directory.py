@@ -63,3 +63,4 @@ if __name__ == "__main__":
     print("\nListe des fichiers audio trouvés :")
     for metadata in d.files:
         metadata.display_tags()
+        metadata.display_tags()
