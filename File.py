@@ -1,4 +1,3 @@
-# file.py
 import os
 import mimetypes
 from abc import ABC, abstractmethod
