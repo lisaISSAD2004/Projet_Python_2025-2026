@@ -1,3 +1,4 @@
+# file.py
 import os
 import mimetypes
 from abc import ABC, abstractmethod
@@ -38,6 +39,4 @@ class File(ABC):
                 pass
 
         mime_type, _ = mimetypes.guess_type(self.path)
-        return mime_type or "application/octet-stream"
-
         return mime_type or "application/octet-stream"
