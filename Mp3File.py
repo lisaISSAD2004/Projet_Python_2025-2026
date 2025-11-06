@@ -4,8 +4,8 @@ import io
 from mutagen.mp3 import MP3
 from mutagen.id3 import ID3, TIT2, TPE1, TALB, TDRC, APIC
 from PIL import Image
-from .AudioFile import AudioFile
-from .Metadata import Metadata
+from AudioFile import AudioFile
+from Metadata import Metadata
 
 
 class Mp3File(AudioFile):
@@ -21,7 +21,8 @@ class Mp3File(AudioFile):
     def extract_metadata(self) -> Metadata:
         """Extrait les métadonnées d’un fichier MP3 via mutagen."""
         audio = MP3(self.path)
-        meta = Metadata()
+        meta = Metadata(self.path)
+
 
         # Durée du morceau
         meta.duration = float(audio.info.length) if audio.info else None
