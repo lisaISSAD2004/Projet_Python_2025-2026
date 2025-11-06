@@ -1,9 +1,12 @@
+# audiofile.py
+
 from abc import ABC, abstractmethod
-from .File import File
-from .Metadata import Metadata
+from File import File
+from Metadata import Metadata
 
 try:
     import pygame
+    import time
 except ImportError:
     pygame = None
 
@@ -16,7 +19,8 @@ class AudioFile(File, ABC):
 
     def __init__(self, path: str):
         super().__init__(path)
-        self.metadata: Metadata = Metadata()
+        # ✅ Correction : passage du chemin au constructeur Metadata
+        self.metadata: Metadata = Metadata(path)
         self.duration: float = 0.0
 
     # --- Méthodes abstraites ---
@@ -35,21 +39,27 @@ class AudioFile(File, ABC):
         """Retourne la durée du morceau."""
         return self.duration
 
-    def play(self) -> None:
+    def play(self):
         """
-        Joue le fichier audio via pygame.
-        Nécessite que pygame soit installé.
+        Joue le fichier audio dans la console avec pygame.
+        Par défaut, on lit le fichier dans le répertoire courant.
         """
-        if not pygame:
-            raise RuntimeError("⚠️ La bibliothèque 'pygame' est requise pour la lecture audio.")
-
         try:
             pygame.mixer.init()
             pygame.mixer.music.load(self.path)
             pygame.mixer.music.play()
-            print(f" Lecture de : {self.path}")
+            print(f"Lecture de : {self.path}")
+
+            # Attente de la fin de la lecture
+            while pygame.mixer.music.get_busy():
+                time.sleep(1)
+
+            pygame.mixer.music.stop()
+
+        except ImportError:
+            raise RuntimeError("⚠️ La bibliothèque 'pygame' est requise pour la lecture audio.")
         except Exception as e:
-            print(f"Erreur de lecture : {e}")
+            print(f"❌ Erreur lors de la lecture du fichier : {e}")
 
     def stop(self) -> None:
         """Arrête la lecture audio."""
