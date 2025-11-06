@@ -1,7 +1,7 @@
 from typing import List
 import os
 import magic 
-from metadata import Metadata
+from Metadata import Metadata
 
 
 class Directory:
@@ -50,17 +50,37 @@ class Directory:
         except Exception as e:
             print(f"Erreur lors de l'exploration de {path}: {e}")
 
+    def generate_xspf_playlist(self, playlist_name="playlist.xspf"):
+        with open(playlist_name, "w", encoding="utf-8") as f:
+            f.write('<?xml version="1.0" encoding="UTF-8"?>\n')
+            f.write('<playlist version="1" xmlns="http://xspf.org/ns/0/">\n')
+            f.write('  <title>Ma playlist</title>\n')
+            f.write('  <trackList>\n')
+            for file in self.files:
+                f.write('    <track>\n')
+                f.write(f'      <title>{file}</title>\n')
+                full_path = os.path.abspath(file.file_path)
+                f.write(f'      <location>file://{full_path}</location>\n')
+                
+                f.write('    </track>\n')
+            f.write('  </trackList>\n')
+            f.write('</playlist>\n')
+        print(f"Playlist XSPF générée : {playlist_name}")
+
+
 # --- Test ---
 if __name__ == "__main__":
-    d = Directory(".")  # Dossier à explorer
+    d = Directory(".")
     d.dir_exist()
     d.exploration_dir()
-
-    print("\nListe des fichiers audio trouvés :")
-    for filename, mime_type in d.files:
-        print(f"{filename} -> {mime_type}")
-    
+    d.generate_xspf_playlist()
     print("\nListe des fichiers audio trouvés :")
     for metadata in d.files:
+        # Affiche le chemin complet et le titre/artiste
+        print(f"{metadata.file_path} -> {metadata.artist} - {metadata.title}")
         metadata.display_tags()
-        metadata.display_tags()
+
+        
+
+
+   
