@@ -3,12 +3,12 @@ import requests
 from mutagen.easyid3 import EasyID3
 from mutagen.flac import FLAC, Picture
 from mutagen.id3 import ID3, APIC
-import time  # ✅ AJOUT OBLIGATOIRE
-from urllib.parse import quote  # ✅ Mieux de l'importer en haut
+import time  
+from urllib.parse import quote  
 
 
 class Metadata:
-    def __init__(self, file_path: str):  # ✅ Correction: __init__ (double underscores)
+    def __init__(self, file_path: str): 
         self.file_path = file_path
         self.file_name = os.path.basename(file_path)
         self.title = ""
