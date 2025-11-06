@@ -1,8 +1,8 @@
 import io
 from mutagen.flac import FLAC
 from PIL import Image
-from .AudioFile import AudioFile
-from .Metadata import Metadata
+from AudioFile import AudioFile
+from Metadata import Metadata
 
 
 class FlacFile(AudioFile):
@@ -18,7 +18,8 @@ class FlacFile(AudioFile):
     def extract_metadata(self) -> Metadata:
         """Extrait les métadonnées d’un fichier FLAC via mutagen."""
         audio = FLAC(self.path)
-        meta = Metadata()
+        meta = Metadata(self.path)
+
 
         meta.duration = float(audio.info.length) if audio.info else None
         self.duration = meta.duration
