@@ -60,4 +60,5 @@ class Mp3File(AudioFile):
             audio.tags.add(TDRC(encoding=3, text=str(year)))
 
         audio.save()
-        print(f"✅ Tags mis à jour pour : {self.path}")
+
+
