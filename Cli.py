@@ -1,93 +1,69 @@
+# cli_simple.py
+
 import argparse
 import sys
 from Directory import Directory
 from Mp3File import Mp3File
 from FlacFile import FlacFile
 
-class CLI:
-    def display_metadata(self, metadata):
-        """Display metadata of a specific audio file."""
-        print("=== Metadata ===")
-        print(f"Artist : {metadata.artist}")
-        print(f"Album  : {metadata.album}")
-        print(f"Title  : {metadata.title}")
-        print(f"Year   : {metadata.year}\n")
+def main():
+    parser = argparse.ArgumentParser(
+        description="Gestion de fichiers audio MP3/FLAC"
+    )
 
-    def display_file_list(self, audio_files):
-        """Display a list of found audio files."""
-        print("=== Audio files found ===")
-        for f in audio_files:
-            print(f"- {f.path}")
-        print()
+    parser.add_argument("-d", "--directory", help="Explorer un dossier et lister les fichiers audio")
+    parser.add_argument("-f", "--file", help="Afficher les métadonnées d'un fichier audio")
+    parser.add_argument("-p", "--play", help="Lire un fichier audio MP3 ou FLAC")
+    parser.add_argument("-o", "--output", help="Nom du fichier playlist XSPF à créer (avec -d)")
 
-    def run(self):
-        """Parse command line arguments and execute the requested command."""
-        parser = argparse.ArgumentParser(
-            prog="python3 cli.py",
-            description="🎧 Command Line Interface for managing MP3/FLAC audio files",
-            formatter_class=argparse.RawTextHelpFormatter
-        )
+    args = parser.parse_args()
 
-        parser.add_argument(
-            "-f", "--file",
-            help="Analyze a specific audio file (MP3 or FLAC)"
-        )
-        parser.add_argument(
-            "-d", "--directory",
-            help="Explore a folder and list all audio files inside"
-        )
-        parser.add_argument(
-            "-p", "--play",
-            help="Play an audio file (MP3 or FLAC)"
-        )
-        parser.add_argument(
-            "-o", "--output",
-            help="Specify an output playlist file (e.g. playlist.xspf)"
-        )
+    if len(sys.argv) == 1:
+        print(" Aucun paramètre fourni. Utilisez -h pour l'aide.")
+        sys.exit(1)
 
-        args = parser.parse_args()
-        
-        # No arguments → show error
-        if len(sys.argv) == 1:
-            print("❌ Error: no parameters provided.")
-            print("Type 'python3 Cli.py -h' or '--help' for usage information.")
+    # --- Explorer un dossier et éventuellement créer une playlist ---
+    if args.directory:
+        directory = Directory(args.directory)
+        directory.dir_exist()
+        directory.exploration_dir()
+        print("\n🎵 Fichiers audio trouvés :")
+        for meta in directory.files:
+            print(f"{meta.file_path} -> {meta.artist} - {meta.title}")
+            meta.display_tags()
+
+        if args.output:
+            # Méthode generate_xspf_playlist() à implémenter dans Directory
+            try:
+                directory.generate_xspf_playlist(args.output)
+                print(f" Playlist sauvegardée sous : {args.output}")
+            except AttributeError:
+                print(" La méthode generate_xspf_playlist n'est pas encore implémentée.")
+
+    # --- Afficher les métadonnées d'un fichier ---
+    elif args.file:
+        from Metadata import Metadata
+        meta = Metadata(args.file)
+        meta.display_tags()
+        print("\nRécupération des paroles...")
+        meta.fetch_lyrics()
+        meta.display_lyrics()
+
+    # --- Lire un fichier audio ---
+    elif args.play:
+        path = args.play
+        if path.lower().endswith(".mp3"):
+            audio = Mp3File(path)
+        elif path.lower().endswith(".flac"):
+            audio = FlacFile(path)
+        else:
+            print("Format non supporté. Utilisez MP3 ou FLAC.")
             sys.exit(1)
-
-        # --- Case 1: analyze a file ---
-        if args.file:
-            if args.file.lower().endswith(".mp3"):
-                audio = Mp3File(args.file)
-            elif args.file.lower().endswith(".flac"):
-                audio = FlacFile(args.file)
-            else:
-                print("❌ Unsupported format. Use an MP3 or FLAC file.")
-                sys.exit(1)
-
-            metadata = audio.extract_metadata()
-            self.display_metadata(metadata)
-
-        # --- Case 2: explore a directory ---
-        elif args.directory:
-            directory = Directory(args.directory)
-            audio_files = directory.scan_recursively()
-            self.display_file_list(audio_files)
-
-            if args.output:
-                print(f"🎵 Playlist will be saved as: {args.output}")
-
-        # --- Case 3: play a file ---
-        elif args.play:
-            if args.play.lower().endswith(".mp3"):
-                audio = Mp3File(args.play)
-            elif args.play.lower().endswith(".flac"):
-                audio = FlacFile(args.play)
-            else:
-                print("❌ Unsupported format. Use an MP3 or FLAC file.")
-                sys.exit(1)
-
-            audio.play()
-
+        print(f"Lecture du fichier : {path}")
+        try:
+            audio.play()  # à implémenter dans Mp3File / FlacFile si nécessaire
+        except AttributeError:
+            print("La méthode play() n'est pas encore implémentée.")
 
 if __name__ == "__main__":
-    cli = CLI()
-    cli.run()
+    main()
