@@ -553,41 +553,44 @@ class MusicApp(ctk.CTk):
         # Switch vers l'onglet métadonnées
         self.tab_view.set("Métadonnées")
 
+     # Dans MusicApp.py
+
     def save_metadata(self):
-        """Sauvegarde les modifications des métadonnées (mise à jour pour utiliser self.selected_file)"""
         if not self.selected_file:
             messagebox.showinfo("Info", "Aucun fichier sélectionné")
             return
-        
-        # Récupérer les nouvelles valeurs
         new_tags = {
-            "title": self.title_entry.get(),
-            "artist": self.artist_entry.get(),
-            "album": self.album_entry.get(),
-            "year": self.year_entry.get(),
-            "genre": self.genre_entry.get()
-        }
-        
+        "title": self.title_entry.get(),
+        "artist": self.artist_entry.get(),
+        "album": self.album_entry.get(),
+        "year": self.year_entry.get(),
+        "genre": self.genre_entry.get()
+    }
+    
         try:
-            # Créer l'objet audio approprié et sauvegarder les tags
             if self.selected_file.file_path.lower().endswith(".mp3"):
                 audio = Mp3File(self.selected_file.file_path)
             else:
                 audio = FlacFile(self.selected_file.file_path)
-            
-            # Sauvegarder les tags (Méthode à implémenter dans vos classes Mp3File/FlacFile)
             audio.save_tags(**new_tags) 
-            
-            # Mettre à jour l'objet metadata
+            if self.selected_file.cover:
+                self.selected_file.cover.seek(0)
+                cover_data = self.selected_file.cover.read()
+                if cover_data:
+                    album_dir = os.path.dirname(self.selected_file.file_path)
+                    cover_path = os.path.join(album_dir, "cover.jpg")
+                    with open(cover_path, "wb") as f:
+                        f.write(cover_data)
             self.selected_file.extract_tags()
-            
-            # Réafficher les métadonnées mises à jour
             self.display_metadata(self.selected_file) 
-            
-            messagebox.showinfo("Succès", "Métadonnées sauvegardées avec succès")
-            
+        
+            messagebox.showinfo("Succès", "Métadonnées et/ou Cover sauvegardées avec succès")
+        
+   
         except Exception as e:
-            messagebox.showerror("Erreur", f"Impossible de sauvegarder: {e}")
+            err = str(e)
+            messagebox.showerror("Erreur d'écriture", 
+                            f"Impossible de sauvegarder. Vérifiez les permissions et le chemin d'accès. Erreur: {err}")
 
     # ============================================================
     # FONCTIONS DE GESTION DE COVER (NOUVELLES)
@@ -670,16 +673,11 @@ class MusicApp(ctk.CTk):
     def _save_validated_cover_in_thread(self, cover_data):
         """Sauvegarde la cover dans le fichier et le dossier (en thread)"""
         try:
-            # 1. Sauvegarde dans le fichier audio
-            # Nécessite que la classe Mp3File/FlacFile ait une méthode save_cover(data)
             if self.selected_file.file_path.lower().endswith(".mp3"):
                 audio_file = Mp3File(self.selected_file.file_path)
             else:
                 audio_file = FlacFile(self.selected_file.file_path)
-            
-            # La méthode save_cover est ici appelée sur l'objet audio approprié
-            audio_file.save_cover(cover_data) 
-
+            audio_file.save_cover(cover_data)
             # 2. Sauvegarde dans le dossier de l'album (cover.jpg)
             album_dir = os.path.dirname(self.selected_file.file_path)
             cover_path = os.path.join(album_dir, "cover.jpg")
