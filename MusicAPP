@@ -280,13 +280,6 @@ class MusicApp(ctk.CTk):
         # Bouton sauvegarde
         self.btn_save_metadata = ctk.CTkButton(info_frame, text="Sauvegarder les Modifications", fg_color="#00A651")
         self.btn_save_metadata.grid(row=row, column=0, columnspan=2, pady=15)
-        self.btn_save_metadata = ctk.CTkButton(
-             info_frame,
-            text="Sauvegarder les Modifications",
-            fg_color="#00A651",
-            command=self.save_metadata      # ← ajouter ceci
-        )
-
 
         # Bouton play
         self.btn_play_song = ctk.CTkButton(meta_tab, text="▶ Lire le Morceau", fg_color="#1f6aa5", height=50)
