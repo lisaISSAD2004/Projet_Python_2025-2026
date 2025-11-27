@@ -1,7 +1,7 @@
 # Mp3File.py
 import io
 from mutagen.mp3 import MP3
-from mutagen.id3 import ID3, TIT2, TPE1, TALB, TDRC, APIC
+from mutagen.id3 import ID3, TIT2, TPE1, TALB, TDRC, APIC, error
 from PIL import Image
 from AudioFile import AudioFile
 from Metadata import Metadata
@@ -60,24 +60,29 @@ class Mp3File(AudioFile):
             audio.tags.add(TDRC(encoding=3, text=str(year)))
 
         audio.save()
+
     def save_cover(self, cover_data: bytes):
-        """Sauvegarde ou remplace la cover (APIC) dans un fichier MP3."""
-        audio = MP3(self.path, ID3=ID3)
+        """Sauvegarde la pochette dans les tags ID3 du fichier MP3."""
+        try:
+            tags = ID3(self.file_path)
+        except error:
+            # Si pas de tags, créez-en de nouveaux
+            tags = ID3()
 
-        # Si pas de tags, on les crée
-        if audio.tags is None:
-            audio.add_tags()
+        # Supprimer les anciennes pochettes
+        tags.delall('APIC') 
+        
+        # Ajouter la nouvelle pochette (type JPEG/PNG déterminé par les données)
+        tags.add(
+            APIC(
+                encoding=3, # 3 est pour UTF-8
+                mime='image/jpeg', # Si vous êtes sûr que c'est JPEG (comme iTunes/MusicBrainz)
+                type=3, # 3 est pour Front Cover
+                desc='Cover',
+                data=cover_data
+            )
+        )
+        tags.save(self.file_path)
+        return True
 
-        # Supprimer les anciennes covers
-        audio.tags.delall("APIC")
 
-        # Ajouter la nouvelle cover
-        audio.tags.add(APIC(
-            encoding=3,
-            mime="image/jpeg",
-            type=3,            # 3 = Cover front
-            desc="Cover",
-            data=cover_data
-        ))
-
-        audio.save(v2_version=3)
