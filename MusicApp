@@ -690,10 +690,10 @@ class MusicApp(ctk.CTk):
             self.selected_file.extract_tags()
             self.after(0, lambda: self.display_metadata(self.selected_file))
             self.after(0, lambda: messagebox.showinfo("Succès", "Cover sauvegardée avec succès!"))
-            
         except Exception as e:
-            print(f"Erreur lors de la sauvegarde de la cover: {e}")
-            self.after(0, lambda: messagebox.showerror("Erreur", f"Impossible de sauvegarder la cover: {e}"))
+            err = str(e)
+            self.after(0, lambda err=err: messagebox.showerror("Erreur", f"Impossible de sauvegarder la cover: {err}"))
+
         finally:
             self.after(0, lambda: self.btn_download_cover.configure(text="Télécharger depuis Internet", state="normal"))
 
