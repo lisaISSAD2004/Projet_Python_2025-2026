@@ -60,5 +60,24 @@ class Mp3File(AudioFile):
             audio.tags.add(TDRC(encoding=3, text=str(year)))
 
         audio.save()
+    def save_cover(self, cover_data: bytes):
+        """Sauvegarde ou remplace la cover (APIC) dans un fichier MP3."""
+        audio = MP3(self.path, ID3=ID3)
 
+        # Si pas de tags, on les crée
+        if audio.tags is None:
+            audio.add_tags()
 
+        # Supprimer les anciennes covers
+        audio.tags.delall("APIC")
+
+        # Ajouter la nouvelle cover
+        audio.tags.add(APIC(
+            encoding=3,
+            mime="image/jpeg",
+            type=3,            # 3 = Cover front
+            desc="Cover",
+            data=cover_data
+        ))
+
+        audio.save(v2_version=3)
