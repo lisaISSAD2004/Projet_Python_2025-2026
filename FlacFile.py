@@ -1,5 +1,5 @@
 import io
-from mutagen.flac import FLAC
+from mutagen.flac import FLAC , Picture
 from PIL import Image
 from AudioFile import AudioFile
 from Metadata import Metadata
@@ -59,3 +59,31 @@ class FlacFile(AudioFile):
 
         audio.save()
         print(f"Tags mis à jour pour : {self.path}")
+    
+    def save_cover(self, cover_data: bytes):
+        """Sauvegarde la pochette dans les tags du fichier FLAC."""
+        try:
+            audio = FLAC(self.file_path)
+        except Exception:
+            # Gérer le cas où le fichier n'est pas un FLAC valide, si nécessaire
+            raise
+
+        # Créer l'objet Picture à partir des données binaires
+        picture = Picture()
+        picture.data = cover_data
+        
+        # Deviner le MIME type (simplifié ici à JPEG pour une cover web standard)
+        picture.mime = 'image/jpeg' 
+        
+        picture.type = 3 # 3 est pour Front Cover
+        picture.desc = 'Cover'
+
+        # Supprimer les anciennes pochettes et ajouter la nouvelle
+        audio.pictures.clear()
+        audio.pictures.append(picture)
+        
+        audio.save()
+        return True
+    
+
+    
