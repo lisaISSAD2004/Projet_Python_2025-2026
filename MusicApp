@@ -438,7 +438,18 @@ class MusicApp(ctk.CTk):
         ctk.CTkLabel(self.playlist_empty, 
                     text="Playlist vide\nGlissez-déposez des fichiers ici", 
                     text_color="gray").pack()
-
+        # 1. Lier l'événement de clic à la zone vide.
+        self.playlist_empty.bind("<Button-1>", self.simulate_drag_and_drop_add) 
+        
+        # 2. Lier les enfants de la zone vide également.
+        for widget in self.playlist_empty.winfo_children():
+            widget.bind("<Button-1>", self.simulate_drag_and_drop_add)
+            
+        # 3. Lier la frame scrollable pour quand elle contient des éléments,
+        #    mais assurez-vous que le clic n'est pas sur un item de playlist.
+        #    Pour les items qui ne sont PAS cliquables (texte, fond), la propagation sera bloquée par défaut.
+        #    La façon la plus simple est de lier le canvas interne du scrollable frame
+        self.playlist_scroll._parent_canvas.bind("<Button-1>", self.simulate_drag_and_drop_add)
         # Boutons
         btn_frame = ctk.CTkFrame(frame, fg_color="transparent")
         btn_frame.grid(row=2, column=0, sticky="ew", padx=10, pady=10)
@@ -912,7 +923,50 @@ class MusicApp(ctk.CTk):
             self.api_result_label.configure(text="✓ Paroles trouvées")
         else:
             self.api_result_label.configure(text="✗ Paroles introuvables")
+    # ============================================================
+    # FONCTIONS PRINCIPALES (suite)
+    # ============================================================
 
+    def simulate_drag_and_drop_add(self, event=None):
+        """
+        Simule l'ajout d'un fichier à la playlist via l'action de 'Drop'.
+        Dans un vrai D&D, 'filedialog.askopenfilename' serait remplacé par 
+        la gestion des chemins d'accès fournis par l'événement de drop.
+        """
+        # Désactiver la fonction si l'utilisateur clique sur un élément existant
+        if event.widget in self.playlist_scroll.winfo_children() and event.widget != self.playlist_empty:
+            return
+
+        # 1. Obtenir les chemins de fichiers (simulé par un dialogue)
+        file_paths = filedialog.askopenfilenames(
+            title="Ajouter des fichiers à la playlist (simulé D&D)",
+            filetypes=[
+                ("Fichiers audio supportés", "*.mp3 *.flac"), 
+                ("MP3 File", "*.mp3"), 
+                ("FLAC File", "*.flac")
+            ]
+        )
+
+        if not file_paths:
+            return
+            
+        added_count = 0
+        
+        # 2. Traiter chaque fichier
+        for file_path in file_paths:
+            if os.path.exists(file_path):
+                # Créer l'objet Metadata
+                try:
+                    metadata = Metadata(file_path)
+                    self.add_to_playlist(metadata)
+                    added_count += 1
+                except Exception as e:
+                    print(f"Erreur lors du traitement du fichier {file_path}: {e}")
+        
+        if added_count > 0:
+            messagebox.showinfo("Playlist", f"{added_count} fichier(s) ajouté(s) à la playlist.")
+        else:
+            messagebox.showwarning("Playlist", "Aucun fichier valide n'a été ajouté.")
 
 if __name__ == "__main__":
     app = MusicApp()
