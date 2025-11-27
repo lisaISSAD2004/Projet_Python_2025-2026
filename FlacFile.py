@@ -1,9 +1,9 @@
 import io
-from mutagen.flac import FLAC , Picture
+from mutagen.flac import FLAC
 from PIL import Image
 from AudioFile import AudioFile
 from Metadata import Metadata
-
+from mutagen.flac import FLAC, Picture # Assurez-vous d'importer Picture
 
 class FlacFile(AudioFile):
     """
@@ -16,36 +16,11 @@ class FlacFile(AudioFile):
         self.vorbis = None
 
     def extract_metadata(self) -> Metadata:
-        """Extrait les métadonnées d’un fichier FLAC via mutagen."""
-        audio = FLAC(self.path)
-        meta = Metadata(self.path)
-
-
-        meta.duration = float(audio.info.length) if audio.info else None
-        self.duration = meta.duration
-
-        tags = audio.tags
-        if tags:
-            meta.title = tags.get('title', [None])[0]
-            meta.artist = tags.get('artist', [None])[0]
-            meta.album = tags.get('album', [None])[0]
-            try:
-                date = tags.get('date', [None])[0]
-                if date:
-                    meta.year = int(date.split('-')[0])
-            except Exception:
-                meta.year = None
-
-        # Extraction de la cover (si présente)
-        if audio.pictures:
-            picture = audio.pictures[0]
-            try:
-                meta.cover = Image.open(io.BytesIO(picture.data))
-            except Exception:
-                meta.cover = None
-
-        self.metadata = meta
-        return meta
+        """Extrait les métadonnées en utilisant la classe Metadata."""
+        # La classe Metadata gère l'extraction complète (tags, durée, cover)
+        self.metadata = Metadata(self.path) 
+        self.duration = self.metadata.duration # Mise à jour de l'attribut local
+        return self.metadata
 
     def save_tags(self, new_tags: dict):
         """
@@ -59,31 +34,33 @@ class FlacFile(AudioFile):
 
         audio.save()
         print(f"Tags mis à jour pour : {self.path}")
-    
-    def save_cover(self, cover_data: bytes):
-        """Sauvegarde la pochette dans les tags du fichier FLAC."""
-        try:
-            audio = FLAC(self.file_path)
-        except Exception:
-            # Gérer le cas où le fichier n'est pas un FLAC valide, si nécessaire
-            raise
 
-        # Créer l'objet Picture à partir des données binaires
-        picture = Picture()
-        picture.data = cover_data
-        
-        # Deviner le MIME type (simplifié ici à JPEG pour une cover web standard)
-        picture.mime = 'image/jpeg' 
-        
-        picture.type = 3 # 3 est pour Front Cover
-        picture.desc = 'Cover'
+    def save_tags(self, title=None, artist=None, album=None, year=None, genre=None):
+        """
+        Met à jour les métadonnées (titre, artiste, album, année, genre)
+        et les sauvegarde dans le fichier FLAC en utilisant les Vorbis Comments.
+        """
+        audio = FLAC(self.path)
 
-        # Supprimer les anciennes pochettes et ajouter la nouvelle
-        audio.pictures.clear()
-        audio.pictures.append(picture)
-        
+        # Créer un dictionnaire temporaire pour faciliter le mapping Vorbis Comment
+        tags_to_save = {
+            'TITLE': title,
+            'ARTIST': artist,
+            'ALBUM': album,
+            'DATE': year,  # La clé Vorbis Comment pour l'année est 'DATE' ou 'YEAR'
+            'GENRE': genre
+        }
+
+        # Parcourir et sauvegarder uniquement les valeurs non vides
+        for vorbis_key, value in tags_to_save.items():
+            if value is not None and value != "":
+                # Vorbis Comment stocke les valeurs dans des listes
+                audio[vorbis_key] = [str(value)] 
+            elif vorbis_key in audio:
+                 # Supprimer le tag s'il était présent et que la nouvelle valeur est vide
+                del audio[vorbis_key]
+
         audio.save()
-        return True
-    
+        print(f"Tags mis à jour pour : {self.path}")
 
-    
+    # ... (Le reste de votre classe FlacFile) ...
