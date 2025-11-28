@@ -7,13 +7,13 @@ Système complet de gestion hôtelière intégrant une base de données relation
 
 ## 👥 Équipe - Groupe D4
 
-- 👩‍💻 *ISSAD Lisa*  
+- *Lisa ISSAD*
   📧 Email : lisa.issad@etu.cyu.fr
-
-- 👩‍💻 *ELYAMNY Nouha*  
+    
+- *Nouha ELYAMANY*
   📧 Email : nouha.elyamany@etu.cyu.fr
     
-- 👩‍💻 *ACHAB Ouardia*  
+- *Ouardia ACHAB*
   📧 Email : ouardia.achab@etu.cyu.fr
 
 
@@ -67,19 +67,17 @@ Système complet de gestion hôtelière intégrant une base de données relation
 
 ## 🚀 Installation et Configuration
 
-### Prérequis
-
-# Logiciels requis
+### Logiciels requis
 - PostgreSQL 12+
 - Java JDK 11+
 - Python 3.8+
 - PHP 7.4+
 
-# Bibliothèques Java
+### Bibliothèques Java
 - json-20240303.jar
 - postgresql-42.7.1.jar
 
-# Bibliothèques Python
+### Bibliothèques Python
 - socket (standard)
 - json (standard)
 
