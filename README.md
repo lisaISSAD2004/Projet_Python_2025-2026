@@ -135,10 +135,3 @@ Connexion réussie au port 8080.
 - **Gestion erreurs** : Codes HTTP-like (400, 401, 404, 409, 500)
 - **Authentification** : Handshake HELLO/HELLO_ACK obligatoire
 
-
-## 📬 Contributions
-
-Toute contribution est la bienvenue !
-Vous pouvez proposer des améliorations, corriger des bugs ou ajouter de nouvelles fonctionnalités en créant une issue ou une pull request sur le dépôt GitHub.
-
-🙏 Merci pour votre intérêt et votre aide !
