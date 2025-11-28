@@ -81,8 +81,9 @@ Système complet de gestion hôtelière intégrant une base de données relation
 ```
 
 ### Connexion au serveur PostgreSQL distant
+```
 psql -h postgresql-achabouardia.alwaysdata.net -p 5432 -U achabouardia -d achabouardia_hotel_db
-
+```
 
 ### Lancement du Serveur Java
 ```bash
@@ -120,24 +121,24 @@ Connexion réussie au port 8080.
 ## 🔐 Sécurité
 
 ### Contraintes Base de Données
-```
+`
 - **Intégrité référentielle** : Clés étrangères avec CASCADE
 - **Contraintes de domaine** : CHECK, UNIQUE, NOT NULL
 - **Validation format** : Email, téléphone, dates
 - **Cohérence temporelle** : `date_fin > date_debut`
-```
+
 
 ### Réseau
-```
+
 - **TCP** : Garantie livraison et ordre des messages
 - **Validation JSON** : Vérification structure avant traitement
 - **Gestion erreurs** : Codes HTTP-like (400, 401, 404, 409, 500)
 - **Authentification** : Handshake HELLO/HELLO_ACK obligatoire
-```
+
 
 ### 📬 Contributions
-```
+
 Toute contribution est la bienvenue !
 Vous pouvez proposer des améliorations, corriger des bugs ou ajouter de nouvelles fonctionnalités en créant une issue ou une pull request sur le dépôt GitHub.
-```
+
 🙏 Merci pour votre intérêt et votre aide !
