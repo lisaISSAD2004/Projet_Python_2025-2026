@@ -2,15 +2,17 @@ import customtkinter as ctk
 import tkinter as tk
 from tkinter import filedialog, messagebox
 import os
-import requests # NOUVEAU: Pour les requêtes API
-import io # NOUVEAU: Pour la gestion des données binaires d'image
-from PIL import Image # NOUVEAU: Pour l'affichage et la manipulation d'images
+import requests 
+import io 
+from PIL import Image 
 from typing import List
+# Assurez-vous que ces classes sont disponibles dans des fichiers séparés ou définies ci-dessus
 from Directory import Directory
 from Mp3File import Mp3File
 from FlacFile import FlacFile
 from Metadata import Metadata
 import threading
+import xml.etree.ElementTree as ET # Ajout pour la fonction open_playlist
 
 # ============================================================
 # FONCTIONS DE TÉLÉCHARGEMENT DE COVER (HORS CLASSE)
@@ -129,7 +131,7 @@ class MusicApp(ctk.CTk):
         self.file_items = {}  # Dict pour stocker les références aux items
         self.is_playing = False
         self.current_audio = None
-        self.cover_image_tk = None # NOUVEAU: Référence pour l'image TK (empêche le garbage collection)
+        self.cover_image_tk = None 
         
         # Configuration de la grille
         self.grid_rowconfigure(1, weight=1) 
@@ -290,13 +292,10 @@ class MusicApp(ctk.CTk):
         self.meta_content = ctk.CTkFrame(meta_tab)
         
         # Cover
-        # REMPLACÉ: self.cover_frame = ctk.CTkFrame(self.meta_content, width=200, height=200)
         self.cover_frame = ctk.CTkFrame(self.meta_content, width=250, height=250, corner_radius=10)
         self.cover_frame.pack(pady=10)
-        self.cover_frame.pack_propagate(False) # NOUVEAU: Empêche le frame de rétrécir
+        self.cover_frame.pack_propagate(False) 
 
-        # REMPLACÉ: self.cover_label = ctk.CTkLabel(self.cover_frame, text="🖼\nCouverture d'album",
-        #                                text_color="gray")
         self.cover_label = ctk.CTkLabel(self.cover_frame, 
                                         text="🖼\nCouverture d'album",
                                         text_color="gray", width=230, height=230)
@@ -305,7 +304,7 @@ class MusicApp(ctk.CTk):
         self.btn_download_cover = ctk.CTkButton(self.meta_content, 
                                                text="Télécharger depuis Internet",
                                                fg_color="#1f6aa5",
-                                               command=self.download_and_save_cover) # NOUVEAU: Commande connectée
+                                               command=self.download_and_save_cover) 
         self.btn_download_cover.pack(pady=5)
         
         # Section éditable
@@ -339,9 +338,8 @@ class MusicApp(ctk.CTk):
         self.year_entry = ctk.CTkEntry(fields_frame)
         self.year_entry.grid(row=3, column=1, sticky="ew", pady=5, padx=(10, 0))
         
-        # Durée (maintenant une entrée pour l'affichage cohérent, mais non éditable facilement)
+        # Durée 
         ctk.CTkLabel(fields_frame, text="Durée", anchor="w").grid(row=4, column=0, sticky="w", pady=5)
-        # RENOMMÉ: self.duration_label -> self.duration_entry
         self.duration_entry = ctk.CTkEntry(fields_frame, state="readonly") # Rendu readonly
         self.duration_entry.grid(row=4, column=1, sticky="ew", pady=5, padx=(10, 0))
         
@@ -367,7 +365,7 @@ class MusicApp(ctk.CTk):
         self.btn_play_file.pack(fill="x", pady=5)
 
     def create_api_tab(self):
-        """Onglet de recherche via API"""
+        """Onglet de recherche via API (Fusionné et corrigé)"""
         api_tab = self.tab_view.tab("Recherche API")
         
         # Section Recherche
@@ -377,6 +375,7 @@ class MusicApp(ctk.CTk):
         ctk.CTkLabel(grp_search, text="Recherche d'informations via API", 
                     anchor="w", font=ctk.CTkFont(weight="bold")).pack(fill="x", padx=10, pady=5)
         
+        # --- Composants de recherche (issus du code 2) ---
         input_frame = ctk.CTkFrame(grp_search, fg_color="transparent")
         input_frame.pack(fill="x", padx=10, pady=(0, 10))
         
@@ -385,9 +384,19 @@ class MusicApp(ctk.CTk):
         self.api_entry.pack(side="left", fill="x", expand=True, padx=(0, 10))
         
         self.api_btn = ctk.CTkButton(input_frame, text="🔍 Rechercher", width=100,
-                                    command=self.search_api)
+                                     command=self.search_api) # Connecté à search_api
         self.api_btn.pack(side="right")
-
+        
+        # --- Bouton explicite pour les paroles (issu du code 1) ---
+        self.btn_fetch_lyrics = ctk.CTkButton(
+            grp_search, 
+            text="🎵 Voir les paroles du morceau sélectionné", 
+            height=30,
+            font=ctk.CTkFont(size=13, weight="bold"),
+            command=self.search_api # Connecté à search_api
+        )
+        self.btn_fetch_lyrics.pack(fill="x", padx=10, pady=10)
+        
         # Section Résultats
         grp_result = ctk.CTkFrame(api_tab)
         grp_result.pack(fill="x", pady=10, padx=10, ipady=20)
@@ -438,6 +447,8 @@ class MusicApp(ctk.CTk):
         ctk.CTkLabel(self.playlist_empty, 
                     text="Playlist vide\nGlissez-déposez des fichiers ici", 
                     text_color="gray").pack()
+
+        # --- AJOUT DU DRAG & DROP SIMULÉ (issu du code 2) ---
         # 1. Lier l'événement de clic à la zone vide.
         self.playlist_empty.bind("<Button-1>", self.simulate_drag_and_drop_add) 
         
@@ -445,11 +456,9 @@ class MusicApp(ctk.CTk):
         for widget in self.playlist_empty.winfo_children():
             widget.bind("<Button-1>", self.simulate_drag_and_drop_add)
             
-        # 3. Lier la frame scrollable pour quand elle contient des éléments,
-        #    mais assurez-vous que le clic n'est pas sur un item de playlist.
-        #    Pour les items qui ne sont PAS cliquables (texte, fond), la propagation sera bloquée par défaut.
-        #    La façon la plus simple est de lier le canvas interne du scrollable frame
+        # 3. Lier la frame scrollable (canvas interne) pour quand elle contient des éléments
         self.playlist_scroll._parent_canvas.bind("<Button-1>", self.simulate_drag_and_drop_add)
+
         # Boutons
         btn_frame = ctk.CTkFrame(frame, fg_color="transparent")
         btn_frame.grid(row=2, column=0, sticky="ew", padx=10, pady=10)
@@ -543,14 +552,11 @@ class MusicApp(ctk.CTk):
         self.genre_entry.delete(0, "end")
         self.genre_entry.insert(0, metadata.genre or "")
 
-        # --- GESTION DE LA COVER (NOUVEAU) ---
+        # --- GESTION DE LA COVER ---
         if metadata.cover:
             try:
-                # Réinitialiser le curseur (si déjà lu)
                 metadata.cover.seek(0)
-                # Ouvrir et redimensionner l'image pour l'affichage
                 img = Image.open(metadata.cover).resize((230, 230))
-                # Créer l'objet CTkImage pour l'afficher
                 self.cover_image_tk = ctk.CTkImage(light_image=img, dark_image=img, size=(230, 230))
                 self.cover_label.configure(image=self.cover_image_tk, text="")
             except Exception as e:
@@ -563,8 +569,6 @@ class MusicApp(ctk.CTk):
         
         # Switch vers l'onglet métadonnées
         self.tab_view.set("Métadonnées")
-
-     # Dans MusicApp.py
 
     def save_metadata(self):
         if not self.selected_file:
@@ -604,7 +608,7 @@ class MusicApp(ctk.CTk):
                             f"Impossible de sauvegarder. Vérifiez les permissions et le chemin d'accès. Erreur: {err}")
 
     # ============================================================
-    # FONCTIONS DE GESTION DE COVER (NOUVELLES)
+    # FONCTIONS DE GESTION DE COVER 
     # ============================================================
     def download_and_save_cover(self):
         """Télécharge une cover si absente, affiche et demande validation avant sauvegarde"""
@@ -708,7 +712,6 @@ class MusicApp(ctk.CTk):
 
 
     def play_selected_file(self):
-        # ... (La fonction reste la même que dans le code initial)
         if not self.selected_file:
             messagebox.showinfo("Info", "Aucun fichier sélectionné")
             return
@@ -743,7 +746,6 @@ class MusicApp(ctk.CTk):
             self.is_playing = False
     
     def stop_playback(self):
-        # ... (La fonction reste la même que dans le code initial)
         if self.current_audio:
             try:
                 self.current_audio.stop()
@@ -753,13 +755,11 @@ class MusicApp(ctk.CTk):
         self.btn_play_file.configure(text="▷ Lire le Morceau", fg_color="#2196F3")
 
     def add_to_playlist(self, metadata: Metadata):
-        # ... (La fonction reste la même que dans le code initial)
         if metadata not in self.playlist:
             self.playlist.append(metadata)
             self.update_playlist_display()
 
     def update_playlist_display(self):
-        # ... (La fonction reste la même que dans le code initial)
         if self.playlist:
             self.playlist_empty.grid_forget()
             self.playlist_scroll.grid(row=1, column=0, sticky="nsew", padx=10)
@@ -776,7 +776,6 @@ class MusicApp(ctk.CTk):
         self.playlist_count_label.configure(text=f"{len(self.playlist)} morceaux")
 
     def create_playlist_item(self, metadata: Metadata, index: int):
-        # ... (La fonction reste la même que dans le code initial)
         item = ctk.CTkFrame(self.playlist_scroll, fg_color=("#3b3b3b", "#2b2b2b"))
         item.pack(fill="x", pady=2)
         
@@ -794,13 +793,11 @@ class MusicApp(ctk.CTk):
         btn_remove.pack(side="right", padx=5)
 
     def remove_from_playlist(self, metadata: Metadata):
-        # ... (La fonction reste la même que dans le code initial)
         if metadata in self.playlist:
             self.playlist.remove(metadata)
             self.update_playlist_display()
 
     def play_playlist(self):
-        # ... (La fonction reste la même que dans le code initial)
         if not self.playlist:
             messagebox.showinfo("Info", "La playlist est vide")
             return
@@ -832,7 +829,6 @@ class MusicApp(ctk.CTk):
         threading.Thread(target=play_all, daemon=True).start()
 
     def open_playlist(self):
-        # ... (La fonction reste la même que dans le code initial)
         filename = filedialog.askopenfilename(
             title="Ouvrir une playlist",
             filetypes=[("XSPF Playlist", ".xspf"), ("Tous les fichiers", ".*")]
@@ -842,7 +838,6 @@ class MusicApp(ctk.CTk):
             return
         
         try:
-            import xml.etree.ElementTree as ET
             ns = {'xspf': 'http://xspf.org/ns/0/'}
             tree = ET.parse(filename)
             root = tree.getroot()
@@ -876,7 +871,6 @@ class MusicApp(ctk.CTk):
             messagebox.showerror("Erreur", f"Impossible d'ouvrir la playlist: {e}")
 
     def save_playlist_dialog(self):
-        # ... (La fonction reste la même que dans le code initial)
         if not self.playlist:
             messagebox.showwarning("Attention", "La playlist est vide")
             return
@@ -890,6 +884,7 @@ class MusicApp(ctk.CTk):
             return
         
         try:
+            # Assumons que la classe Directory a été définie pour inclure generate_xspf_playlist
             temp_dir = Directory(".")
             temp_dir.files = self.playlist
             temp_dir.generate_xspf_playlist(filename)
@@ -899,12 +894,17 @@ class MusicApp(ctk.CTk):
             messagebox.showerror("Erreur", f"Impossible de sauvegarder: {e}")
 
     def search_api(self):
-        # ... (La fonction reste la même que dans le code initial)
+        """Recherche les paroles via l'API pour le morceau sélectionné (lancé en thread)."""
         if not self.selected_file:
-            messagebox.showinfo("Info", "Veuillez sélectionner un fichier d'abord")
+            messagebox.showinfo("Info", "Veuillez sélectionner un fichier d'abord pour voir les paroles.")
             return
         
-        query = self.api_entry.get()
+        # Mise à jour de l'UI pour indiquer l'attente
+        self.api_result_label.configure(text="Recherche en cours... (Ne pas bloquer l'UI)", text_color="#2196F3")
+        
+        # Désactiver les deux boutons de recherche (logique issue du code 1)
+        self.api_btn.configure(state="disabled")
+        self.btn_fetch_lyrics.configure(state="disabled")
         
         def fetch():
             # Nécessite l'implémentation de la méthode fetch_lyrics dans la classe Metadata
@@ -914,28 +914,47 @@ class MusicApp(ctk.CTk):
         threading.Thread(target=fetch, daemon=True).start()
 
     def display_lyrics(self):
-        # ... (La fonction reste la même que dans le code initial)
-        if self.selected_file and self.selected_file.lyrics:
+        """Affiche les paroles récupérées et gère le statut de succès/échec (logique issue du code 1)."""
+        
+        # Réactiver les boutons
+        self.api_btn.configure(state="normal")
+        self.btn_fetch_lyrics.configure(state="normal")
+        
+        # Logique d'affichage
+        if self.selected_file and self.selected_file.lyrics and "Paroles introuvables" not in self.selected_file.lyrics and "Erreur" not in self.selected_file.lyrics:
+            # === CAS SUCCÈS ===
             self.lyrics_text.configure(state="normal", text_color="white")
             self.lyrics_text.delete("1.0", "end")
             self.lyrics_text.insert("1.0", self.selected_file.lyrics)
             self.lyrics_text.configure(state="disabled")
-            self.api_result_label.configure(text="✓ Paroles trouvées")
+            self.api_result_label.configure(text="✓ Paroles trouvées avec succès!", text_color="#00C853")
         else:
-            self.api_result_label.configure(text="✗ Paroles introuvables")
+            # === CAS ÉCHEC (Affiche en ROUGE) ===
+            
+            # Déterminer le message d'erreur pour la zone de texte
+            error_message = self.selected_file.lyrics if self.selected_file.lyrics and "Erreur" in self.selected_file.lyrics else "Paroles introuvables. L'API n'a pas trouvé le titre."
+
+            # Afficher le statut en ROUGE
+            self.api_result_label.configure(text="✗ Paroles introuvables.", text_color="red")
+            
+            # Afficher le détail de l'erreur dans la zone de texte
+            self.lyrics_text.configure(state="normal")
+            self.lyrics_text.delete("1.0", "end")
+            self.lyrics_text.insert("1.0", error_message)
+            self.lyrics_text.configure(state="disabled", text_color="gray")
+
     # ============================================================
-    # FONCTIONS PRINCIPALES (suite)
+    # FONCTION DRAG & DROP SIMULÉE (issu du code 2)
     # ============================================================
 
     def simulate_drag_and_drop_add(self, event=None):
         """
-        Simule l'ajout d'un fichier à la playlist via l'action de 'Drop'.
-        Dans un vrai D&D, 'filedialog.askopenfilename' serait remplacé par 
-        la gestion des chemins d'accès fournis par l'événement de drop.
+        Simule l'ajout d'un fichier à la playlist via l'action de 'Drop' 
+        en ouvrant un dialogue de sélection.
         """
-        # Désactiver la fonction si l'utilisateur clique sur un élément existant
-        if event.widget in self.playlist_scroll.winfo_children() and event.widget != self.playlist_empty:
-            return
+        # Ignorer si l'utilisateur clique sur un item de playlist déjà existant
+        if self.playlist_scroll.winfo_exists() and event.widget in self.playlist_scroll.winfo_children() and event.widget != self.playlist_empty:
+             return
 
         # 1. Obtenir les chemins de fichiers (simulé par un dialogue)
         file_paths = filedialog.askopenfilenames(
