@@ -9,9 +9,9 @@ Système complet de gestion hôtelière intégrant une base de données relation
 
 - 👩‍💻 *ISSAD Lisa*  
   📧 Email : lisa.issad@etu.cyu.fr
-    
-- 👩‍💻 *ELYAMANY Nouha*
-  📧 Email : nouha.elyamany@etu.cyu.fr
+
+- 👩‍💻 *ISSAD Lisa*  
+  📧 Email : lisa.issad@etu.cyu.fr
     
 - 👩‍💻 *ACHAB Ouardia*  
   📧 Email : ouardia.achab@etu.cyu.fr
