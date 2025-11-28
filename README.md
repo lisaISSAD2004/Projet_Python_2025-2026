@@ -7,14 +7,14 @@ Système complet de gestion hôtelière intégrant une base de données relation
 
 ## 👥 Équipe - Groupe D4
 
-- 👩‍💻 *Lisa ISSAD*
+- 👩‍💻 *ACHAB Ouardia*  
+  📧 Email : ouardia.achab@etu.cyu.fr
+    
+- 👩‍💻 *ISSAD Lisa*  
   📧 Email : lisa.issad@etu.cyu.fr
     
-- 👩‍💻 *Nouha ELYAMANY*
+- 👩‍💻 *ELYAMANY Nouha  
   📧 Email : nouha.elyamany@etu.cyu.fr
-    
-- 👩‍💻 *ACHAB Ouardia*  
-  📧 Email : achabouardia44@gmail.com 
 
 
 **Responsable de formation :** Marc Lemaire  
