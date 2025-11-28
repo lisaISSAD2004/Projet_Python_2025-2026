@@ -7,13 +7,13 @@ Système complet de gestion hôtelière intégrant une base de données relation
 
 ## 👥 Équipe - Groupe D4
 
-- **Lisa ISSAD**
+- *Lisa ISSAD*
   📧 Email : lisa.issad@etu.cyu.fr
     
-- **Nouha ELYAMANY**
+- *Nouha ELYAMANY*
   📧 Email : nouha.elyamany@etu.cyu.fr
     
-- **Ouardia ACHAB**
+- *Ouardia ACHAB*
   📧 Email : ouardia.achab@etu.cyu.fr
 
 
