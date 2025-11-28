@@ -9,10 +9,14 @@ Système complet de gestion hôtelière intégrant une base de données relation
 
 - **Lisa ISSAD**
     📧 Email : lisa.issad@etu.cyu.fr
+    
 - **Nouha ELYAMANY**
     📧 Email : nouha.elyamany@etu.cyu.fr
+    
 - **Ouardia ACHAB**
     📧 Email : ouardia.achab@etu.cyu.fr
+
+---
 **Responsable de formation :** Marc Lemaire  
 **Période :** Septembre 2025 - Décembre 2025
 
@@ -64,7 +68,7 @@ Système complet de gestion hôtelière intégrant une base de données relation
 ## 🚀 Installation et Configuration
 
 ### Prérequis
-```bash
+
 # Logiciels requis
 - PostgreSQL 12+
 - Java JDK 11+
@@ -78,7 +82,7 @@ Système complet de gestion hôtelière intégrant une base de données relation
 # Bibliothèques Python
 - socket (standard)
 - json (standard)
-```
+
 
 ### Connexion au serveur PostgreSQL distant
 ```
@@ -121,7 +125,6 @@ Connexion réussie au port 8080.
 ## 🔐 Sécurité
 
 ### Contraintes Base de Données
-`
 - **Intégrité référentielle** : Clés étrangères avec CASCADE
 - **Contraintes de domaine** : CHECK, UNIQUE, NOT NULL
 - **Validation format** : Email, téléphone, dates
@@ -129,7 +132,6 @@ Connexion réussie au port 8080.
 
 
 ### Réseau
-
 - **TCP** : Garantie livraison et ordre des messages
 - **Validation JSON** : Vérification structure avant traitement
 - **Gestion erreurs** : Codes HTTP-like (400, 401, 404, 409, 500)
@@ -137,7 +139,6 @@ Connexion réussie au port 8080.
 
 
 ### 📬 Contributions
-
 Toute contribution est la bienvenue !
 Vous pouvez proposer des améliorations, corriger des bugs ou ajouter de nouvelles fonctionnalités en créant une issue ou une pull request sur le dépôt GitHub.
 
