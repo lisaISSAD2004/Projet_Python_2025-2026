@@ -13,8 +13,8 @@ Système complet de gestion hôtelière intégrant une base de données relation
 - 👩‍💻 *Nouha ELYAMANY*
   📧 Email : nouha.elyamany@etu.cyu.fr
     
-- 👩‍💻 *Ouardia ACHAB*
-  📧 Email : ouardia.achab@etu.cyu.fr
+- 👩‍💻 *ACHAB Ouardia*  
+  📧 Email : achabouardia44@gmail.com 
 
 
 **Responsable de formation :** Marc Lemaire  
