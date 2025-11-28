@@ -67,27 +67,27 @@ Système complet de gestion hôtelière intégrant une base de données relation
 
 ## 🚀 Installation et Configuration
 
-### Logiciels requis
+### 1. **Logiciels requis**
 - PostgreSQL 12+
 - Java JDK 11+
 - Python 3.8+
 - PHP 7.4+
 
-### Bibliothèques Java
+### 2. **Bibliothèques Java**
 - json-20240303.jar
 - postgresql-42.7.1.jar
 
-### Bibliothèques Python
+### 3. **Bibliothèques Python**
 - socket (standard)
 - json (standard)
 
 
-### Connexion au serveur PostgreSQL distant
+### 4. **Connexion au serveur PostgreSQL distant**
 ```
 psql -h postgresql-achabouardia.alwaysdata.net -p 5432 -U achabouardia -d achabouardia_hotel_db
 ```
 
-### Lancement du Serveur Java
+### 5. **Lancement du Serveur Java**
 ```bash
 # Compiler le serveur
 javac -cp ../:/home/etudiant/Téléchargements/json-20240303.jar:/home/etudiant/Téléchargements/postgresql-42.7.7.jar server/*.java
@@ -104,7 +104,7 @@ Serveur en attente sur le port 8080...
 ```
 
 
-### Lancement du Client Python
+### 6. **Lancement du Client Python**
 ```bash
 # Exécuter le client avec port par défaut (8080)
 python3 /home/etudiant/Téléchargements/client/HotelClient.py localhost 
@@ -122,14 +122,14 @@ Connexion réussie au port 8080.
 
 ## 🔐 Sécurité
 
-### Contraintes Base de Données
+### 1. **Contraintes Base de Données**
 - **Intégrité référentielle** : Clés étrangères avec CASCADE
 - **Contraintes de domaine** : CHECK, UNIQUE, NOT NULL
 - **Validation format** : Email, téléphone, dates
 - **Cohérence temporelle** : `date_fin > date_debut`
 
 
-### Réseau
+### 2. **Réseau**
 - **TCP** : Garantie livraison et ordre des messages
 - **Validation JSON** : Vérification structure avant traitement
 - **Gestion erreurs** : Codes HTTP-like (400, 401, 404, 409, 500)
