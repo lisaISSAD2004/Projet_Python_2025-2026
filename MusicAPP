@@ -1,18 +1,16 @@
 import customtkinter as ctk
 import tkinter as tk
-from tkinter import filedialog
+from tkinter import filedialog, messagebox
 import os
-import requests
-import io
-from PIL import Image
-
+import requests # NOUVEAU: Pour les requêtes API
+import io # NOUVEAU: Pour la gestion des données binaires d'image
+from PIL import Image # NOUVEAU: Pour l'affichage et la manipulation d'images
+from typing import List
 from Directory import Directory
+from Mp3File import Mp3File
+from FlacFile import FlacFile
 from Metadata import Metadata
-
-
-ctk.set_appearance_mode("Dark")
-ctk.set_default_color_theme("dark-blue")
-
+import threading
 
 # ============================================================
 # FONCTIONS DE TÉLÉCHARGEMENT DE COVER (HORS CLASSE)
@@ -66,10 +64,7 @@ def fetch_cover_from_itunes(artist: str, album: str):
             
     except Exception as e:
         print(f"✗ Erreur lors de la recherche : {e}")
-        import traceback
-        traceback.print_exc()
         return None
-
 
 def fetch_cover_from_musicbrainz(artist: str, album: str):
     """Alternative : recherche via MusicBrainz"""
@@ -101,7 +96,7 @@ def fetch_cover_from_musicbrainz(artist: str, album: str):
         release_id = data["releases"][0]["id"]
         cover_url = f"https://coverartarchive.org/release/{release_id}/front"
         
-        print(f"📥 Téléchargement cover depuis Cover Art Archive...")
+        print(f"📥 Tentative de téléchargement depuis Cover Art Archive...")
         img_response = requests.get(cover_url, timeout=10)
         
         if img_response.status_code == 200:
@@ -115,19 +110,29 @@ def fetch_cover_from_musicbrainz(artist: str, album: str):
         print(f"✗ Erreur MusicBrainz : {e}")
         return None
 
+# Configuration globale du thème
+ctk.set_appearance_mode("Dark")  
+ctk.set_default_color_theme("dark-blue")  
 
-# ============================================================
-# CLASSE PRINCIPALE
-# ============================================================
 class MusicApp(ctk.CTk):
     def __init__(self):
         super().__init__()
-        self.directory = None
 
-        # --- Configuration fenêtre ---
+        # --- Configuration de la fenêtre principale ---
         self.title("Gestionnaire Musical MP3/FLAC")
         self.geometry("1200x700")
-        self.grid_rowconfigure(1, weight=1)
+        
+        # Variables d'état
+        self.current_directory: Directory = None
+        self.selected_file: Metadata = None
+        self.playlist: List[Metadata] = []
+        self.file_items = {}  # Dict pour stocker les références aux items
+        self.is_playing = False
+        self.current_audio = None
+        self.cover_image_tk = None # NOUVEAU: Référence pour l'image TK (empêche le garbage collection)
+        
+        # Configuration de la grille
+        self.grid_rowconfigure(1, weight=1) 
         self.grid_columnconfigure(0, weight=1)
 
         # ============================================================
@@ -136,30 +141,25 @@ class MusicApp(ctk.CTk):
         self.header_frame = ctk.CTkFrame(self, corner_radius=0, fg_color="transparent")
         self.header_frame.grid(row=0, column=0, sticky="ew", padx=20, pady=10)
 
-        self.logo_label = ctk.CTkLabel(self.header_frame, text="♫ Gestionnaire Musical MP3/FLAC",
-                                       font=ctk.CTkFont(size=20, weight="bold"))
-        self.logo_label.pack(side="left")
-
-        self.btn_save_pl = ctk.CTkButton(self.header_frame, text="Sauvegarder Playlist", fg_color="#1f6aa5")
-        self.btn_save_pl.pack(side="right", padx=5)
-
-        self.btn_open_pl = ctk.CTkButton(self.header_frame, text="Ouvrir Playlist",
-                                         fg_color="transparent", border_width=1,
-                                         text_color=("gray10", "#DCE4EE"))
+        
+        self.btn_open_pl = ctk.CTkButton(self.header_frame, text="Ouvrir Playlist", 
+                                        fg_color="transparent", border_width=1, 
+                                        text_color=("gray10", "#DCE4EE"),
+                                        command=self.open_playlist)
         self.btn_open_pl.pack(side="right", padx=5)
 
-        self.btn_open_dir = ctk.CTkButton(self.header_frame, text="Ouvrir Dossier",
-                                          fg_color="transparent", border_width=1,
-                                          text_color=("gray10", "#DCE4EE"), command=self.open_folder)
+        self.btn_open_dir = ctk.CTkButton(self.header_frame, text="Ouvrir Dossier", 
+                                         fg_color="transparent", border_width=1, 
+                                         text_color=("gray10", "#DCE4EE"),
+                                         command=self.open_directory)
         self.btn_open_dir.pack(side="right", padx=5)
-        
 
         # ============================================================
-        # 2. CONTENU PRINCIPAL (3 Colonnes)
+        # 2. CONTENU PRINCIPAL
         # ============================================================
         self.main_content = ctk.CTkFrame(self, fg_color="transparent")
         self.main_content.grid(row=1, column=0, sticky="nsew", padx=20, pady=(0, 20))
-
+        
         self.main_content.columnconfigure(0, weight=1)
         self.main_content.columnconfigure(1, weight=2)
         self.main_content.columnconfigure(2, weight=1)
@@ -172,359 +172,777 @@ class MusicApp(ctk.CTk):
         # ============================================================
         # 3. FOOTER
         # ============================================================
-        self.footer_label = ctk.CTkLabel(self, text="Prêt | 0 fichiers trouvés",
-                                         anchor="w", text_color="gray")
+        self.footer_label = ctk.CTkLabel(self, text="Prêt | 0 fichiers trouvés", 
+                                        anchor="w", text_color="gray")
         self.footer_label.grid(row=2, column=0, sticky="ew", padx=20, pady=5)
 
     # ============================================================
-    # PANNEAU DE GAUCHE (Explorateur)
+    # PANNEAU GAUCHE - Explorateur de fichiers
     # ============================================================
     def create_left_panel(self):
         frame = ctk.CTkFrame(self.main_content)
         frame.grid(row=0, column=0, sticky="nsew", padx=(0, 10))
 
-        ctk.CTkLabel(frame, text="Explorateur de Fichiers",
-                     font=ctk.CTkFont(size=14, weight="bold")).pack(fill="x", padx=10, pady=10)
+        ctk.CTkLabel(frame, text="Explorateur de Fichiers", 
+                    font=ctk.CTkFont(size=14, weight="bold"), 
+                    anchor="w").pack(fill="x", padx=10, pady=10)
 
+        # Barre de recherche
         self.search_entry = ctk.CTkEntry(frame, placeholder_text="Filtrer les fichiers...")
         self.search_entry.pack(fill="x", padx=10, pady=(0, 10))
+        self.search_entry.bind("<KeyRelease>", self.filter_files)
 
+        # Liste scrollable
         self.file_scroll = ctk.CTkScrollableFrame(frame, fg_color="transparent")
         self.file_scroll.pack(fill="both", expand=True, padx=5, pady=5)
 
-    def create_file_item(self, title, subtitle, file_path=None):
-        item_frame = ctk.CTkFrame(self.file_scroll, fg_color=("#3b3b3b", "#2b2b2b"))
-        item_frame.pack(fill="x", pady=2)
-        click_handler = lambda e, fp=file_path: self.show_metadata(fp)
+    def create_file_item(self, metadata: Metadata):
+        """Crée un item de fichier dans la liste"""
+        item_frame = ctk.CTkFrame(self.file_scroll, fg_color=("#3b3b3b", "#2b2b2b"), 
+                                 height=60, corner_radius=5)
+        item_frame.pack(fill="x", pady=2, padx=5)
+        item_frame.pack_propagate(False)
         
-        item_frame.bind("<Button-1>", click_handler)
-        
-        icon_label = ctk.CTkLabel(item_frame, text="📄", width=30)
+        # Icône avec extension
+        extension = "MP3" if metadata.file_path.lower().endswith(".mp3") else "FLAC"
+        icon = "🎵" if extension == "MP3" else "🎼"
+        icon_label = ctk.CTkLabel(item_frame, text=icon, width=30)
         icon_label.pack(side="left", padx=5)
-        icon_label.bind("<Button-1>", click_handler)
-
-        text_frame = ctk.CTkFrame(item_frame, fg_color="transparent")
-        text_frame.pack(side="left", fill="both", expand=True)
-        text_frame.bind("<Button-1>", click_handler)
-
-        title_label = ctk.CTkLabel(text_frame, text=title,
-                     font=ctk.CTkFont(weight="bold"), anchor="w")
-        title_label.pack(fill="x")
-        title_label.bind("<Button-1>", click_handler)
         
-        subtitle_label = ctk.CTkLabel(text_frame, text=subtitle,
-                     text_color="gray", anchor="w", font=ctk.CTkFont(size=11))
-        subtitle_label.pack(fill="x")
-        subtitle_label.bind("<Button-1>", click_handler)
+        # Info Text
+        text_frame = ctk.CTkFrame(item_frame, fg_color="transparent")
+        text_frame.pack(side="left", fill="both", expand=True, padx=5)
+        
+        title = metadata.title if metadata.title else metadata.file_name
+        artist = metadata.artist if metadata.artist else "Artiste inconnu"
+        
+        # Titre avec extension
+        title_with_ext = f"{title} ({extension})"
+        title_label = ctk.CTkLabel(text_frame, text=title_with_ext, anchor="w", 
+                                   font=ctk.CTkFont(weight="bold", size=12))
+        title_label.pack(fill="x", anchor="w")
+        
+        artist_label = ctk.CTkLabel(text_frame, text=artist, anchor="w", 
+                                    text_color="gray", font=ctk.CTkFont(size=10))
+        artist_label.pack(fill="x", anchor="w")
+        
+        # Bouton pour ajouter à la playlist
+        btn_add = ctk.CTkButton(item_frame, text="+", width=30, height=30,
+                               fg_color="transparent", hover_color="#1f6aa5",
+                               command=lambda m=metadata: self.add_to_playlist(m))
+        btn_add.pack(side="right", padx=5)
+        
+        # Rendre l'item cliquable pour afficher les métadonnées
+        for widget in [item_frame, icon_label, text_frame, title_label, artist_label]:
+            widget.bind("<Button-1>", lambda e, m=metadata: self.display_metadata(m))
+            widget.configure(cursor="hand2")  # Curseur main
+        
+        # Stocker la référence
+        self.file_items[metadata.file_path] = item_frame
+
+    def filter_files(self, event=None):
+        """Filtre les fichiers selon le texte de recherche"""
+        search_text = self.search_entry.get().lower()
+        
+        if not self.current_directory:
+            return
+            
+        # Détruire tous les items existants
+        for widget in self.file_scroll.winfo_children():
+            widget.destroy()
+        self.file_items.clear()
+        
+        # Recréer les items filtrés
+        for metadata in self.current_directory.files:
+            title = (metadata.title or metadata.file_name).lower()
+            artist = (metadata.artist or "").lower()
+            
+            if search_text in title or search_text in artist:
+                self.create_file_item(metadata)
 
     # ============================================================
-    # PANNEAU CENTRAL (2 onglets)
+    # PANNEAU CENTRAL - Métadonnées et Recherche API
     # ============================================================
     def create_center_panel(self):
         self.tab_view = ctk.CTkTabview(self.main_content)
         self.tab_view.grid(row=0, column=1, sticky="nsew", padx=10)
+        
         self.tab_view.add("Métadonnées")
         self.tab_view.add("Recherche API")
-        self.tab_view.set("Métadonnées")
 
-        # =============================
-        # ONGLET MÉTADONNÉES
-        # =============================
-        meta_tab = self.tab_view.tab("Métadonnées")
-
-        # --- Zone jaquette ---
-        self.cover_frame = ctk.CTkFrame(meta_tab, height=250, width=250, corner_radius=10)
-        self.cover_frame.pack(pady=10)
-        self.cover_frame.pack_propagate(False)
-
-        self.cover_label = ctk.CTkLabel(self.cover_frame, text="Couverture d'album", text_color="gray")
-        self.cover_label.pack(expand=True)
-
-        # ← CONNEXION DU BOUTON
-        self.btn_dl_cover = ctk.CTkButton(self.cover_frame, text="Télécharger depuis Internet", 
-                                          width=180, command=self.download_and_save_cover)
-        self.btn_dl_cover.pack(pady=10)
+        # --- ONGLET MÉTADONNÉES ---
+        self.create_metadata_tab()
         
+        # --- ONGLET RECHERCHE API ---
+        self.create_api_tab()
 
-        # --- Cadre des champs ---
-        info_frame = ctk.CTkFrame(meta_tab)
-        info_frame.pack(fill="x", padx=10, pady=10)
+    def create_metadata_tab(self):
+        """Onglet d'affichage et modification des métadonnées"""
+        meta_tab = self.tab_view.tab("Métadonnées")
+        
+        # Message par défaut
+        self.meta_placeholder = ctk.CTkLabel(meta_tab, 
+                                            text="Sélectionnez un fichier pour voir ses métadonnées",
+                                            text_color="gray")
+        self.meta_placeholder.pack(expand=True)
+        
+        # Frame pour les métadonnées (caché au départ)
+        self.meta_content = ctk.CTkFrame(meta_tab)
+        
+        # Cover
+        # REMPLACÉ: self.cover_frame = ctk.CTkFrame(self.meta_content, width=200, height=200)
+        self.cover_frame = ctk.CTkFrame(self.meta_content, width=250, height=250, corner_radius=10)
+        self.cover_frame.pack(pady=10)
+        self.cover_frame.pack_propagate(False) # NOUVEAU: Empêche le frame de rétrécir
 
-        ctk.CTkLabel(info_frame, text="Métadonnées du Fichier",
-                     font=ctk.CTkFont(size=15, weight="bold")).grid(row=0, column=0, columnspan=2, sticky="w", pady=(0, 10))
+        # REMPLACÉ: self.cover_label = ctk.CTkLabel(self.cover_frame, text="🖼\nCouverture d'album",
+        #                                text_color="gray")
+        self.cover_label = ctk.CTkLabel(self.cover_frame, 
+                                        text="🖼\nCouverture d'album",
+                                        text_color="gray", width=230, height=230)
+        self.cover_label.pack(expand=True)
+        
+        self.btn_download_cover = ctk.CTkButton(self.meta_content, 
+                                               text="Télécharger depuis Internet",
+                                               fg_color="#1f6aa5",
+                                               command=self.download_and_save_cover) # NOUVEAU: Commande connectée
+        self.btn_download_cover.pack(pady=5)
+        
+        # Section éditable
+        edit_frame = ctk.CTkFrame(self.meta_content)
+        edit_frame.pack(fill="both", expand=True, pady=10, padx=10)
+        
+        ctk.CTkLabel(edit_frame, text="Métadonnées du Fichier", 
+                    font=ctk.CTkFont(weight="bold"), anchor="w").pack(fill="x", padx=10, pady=5)
+        
+        # Champs éditables
+        fields_frame = ctk.CTkFrame(edit_frame, fg_color="transparent")
+        fields_frame.pack(fill="both", expand=True, padx=10, pady=10)
+        
+        # Titre
+        ctk.CTkLabel(fields_frame, text="Titre", anchor="w").grid(row=0, column=0, sticky="w", pady=5)
+        self.title_entry = ctk.CTkEntry(fields_frame)
+        self.title_entry.grid(row=0, column=1, sticky="ew", pady=5, padx=(10, 0))
+        
+        # Artiste
+        ctk.CTkLabel(fields_frame, text="Artiste", anchor="w").grid(row=1, column=0, sticky="w", pady=5)
+        self.artist_entry = ctk.CTkEntry(fields_frame)
+        self.artist_entry.grid(row=1, column=1, sticky="ew", pady=5, padx=(10, 0))
+        
+        # Album
+        ctk.CTkLabel(fields_frame, text="Album", anchor="w").grid(row=2, column=0, sticky="w", pady=5)
+        self.album_entry = ctk.CTkEntry(fields_frame)
+        self.album_entry.grid(row=2, column=1, sticky="ew", pady=5, padx=(10, 0))
+        
+        # Année
+        ctk.CTkLabel(fields_frame, text="Année", anchor="w").grid(row=3, column=0, sticky="w", pady=5)
+        self.year_entry = ctk.CTkEntry(fields_frame)
+        self.year_entry.grid(row=3, column=1, sticky="ew", pady=5, padx=(10, 0))
+        
+        # Durée (maintenant une entrée pour l'affichage cohérent, mais non éditable facilement)
+        ctk.CTkLabel(fields_frame, text="Durée", anchor="w").grid(row=4, column=0, sticky="w", pady=5)
+        # RENOMMÉ: self.duration_label -> self.duration_entry
+        self.duration_entry = ctk.CTkEntry(fields_frame, state="readonly") # Rendu readonly
+        self.duration_entry.grid(row=4, column=1, sticky="ew", pady=5, padx=(10, 0))
+        
+        # Genre
+        ctk.CTkLabel(fields_frame, text="Genre", anchor="w").grid(row=5, column=0, sticky="w", pady=5)
+        self.genre_entry = ctk.CTkEntry(fields_frame)
+        self.genre_entry.grid(row=5, column=1, sticky="ew", pady=5, padx=(10, 0))
+        
+        fields_frame.columnconfigure(1, weight=1)
+        
+        # Boutons
+        btn_frame = ctk.CTkFrame(edit_frame, fg_color="transparent")
+        btn_frame.pack(fill="x", padx=10, pady=10)
+        
+        self.btn_save_meta = ctk.CTkButton(btn_frame, text="💾 Sauvegarder les Modifications",
+                                          fg_color="#00C853", hover_color="#009624",
+                                          command=self.save_metadata)
+        self.btn_save_meta.pack(fill="x", pady=5)
+        
+        self.btn_play_file = ctk.CTkButton(btn_frame, text="▷ Lire le Morceau",
+                                          fg_color="#2196F3",
+                                          command=self.play_selected_file)
+        self.btn_play_file.pack(fill="x", pady=5)
 
-        self.title_entry = ctk.CTkEntry(info_frame)
-        self.artist_entry = ctk.CTkEntry(info_frame)
-        self.album_entry = ctk.CTkEntry(info_frame)
-        self.year_entry = ctk.CTkEntry(info_frame)
-        self.duration_entry = ctk.CTkEntry(info_frame)
-        self.genre_entry = ctk.CTkEntry(info_frame)
-
-        fields = [
-            ("Titre", self.title_entry),
-            ("Artiste", self.artist_entry),
-            ("Album", self.album_entry),
-            ("Durée", self.duration_entry),
-            ("Année", self.year_entry),
-            ("Genre", self.genre_entry)
-        ]
-
-        row = 1
-        for txt, entry in fields:
-            ctk.CTkLabel(info_frame, text=txt).grid(row=row, column=0, sticky="w", pady=5)
-            entry.grid(row=row, column=1, sticky="ew", padx=10, pady=5)
-            row += 1
-
-        info_frame.grid_columnconfigure(1, weight=1)
-
-        # Bouton sauvegarde
-        self.btn_save_metadata = ctk.CTkButton(info_frame, text="Sauvegarder les Modifications", fg_color="#00A651")
-        self.btn_save_metadata.grid(row=row, column=0, columnspan=2, pady=15)
-
-        # Bouton play
-        self.btn_play_song = ctk.CTkButton(meta_tab, text="▶ Lire le Morceau", fg_color="#1f6aa5", height=50)
-        self.btn_play_song.pack(fill="x", padx=10, pady=10)
-
-        # =============================
-        # ONGLET API
-        # =============================
+    def create_api_tab(self):
+        """Onglet de recherche via API"""
         api_tab = self.tab_view.tab("Recherche API")
-
+        
+        # Section Recherche
         grp_search = ctk.CTkFrame(api_tab)
         grp_search.pack(fill="x", pady=10, padx=10)
+        
+        ctk.CTkLabel(grp_search, text="Recherche d'informations via API", 
+                    anchor="w", font=ctk.CTkFont(weight="bold")).pack(fill="x", padx=10, pady=5)
+        
 
-        ctk.CTkLabel(grp_search, text="Recherche d'informations via API",
-                     anchor="w", font=ctk.CTkFont(weight="bold")).pack(fill="x", padx=10, pady=5)
+        
+        
+        # === NOUVEAU BOUTON POUR LES PAROLES (AJOUTÉ POUR ÊTRE COMPATIBLE AVEC search_api) ===
+        # J'ajoute le bouton "Voir les paroles" ici, qui est plus explicite que le champ de recherche initial.
+        # Je vais le connecter à search_api et ignorer la lecture de self.api_entry.
+        self.btn_fetch_lyrics = ctk.CTkButton(
+            grp_search, 
+            text="🎵 Voir les paroles du morceau sélectionné", 
+            height=30,
+            font=ctk.CTkFont(size=13, weight="bold"),
+            command=self.search_api # Utilise la fonction search_api existante
+        )
+        self.btn_fetch_lyrics.pack(fill="x", padx=10, pady=10)
+        # =========================================================================================
 
-        input_frame = ctk.CTkFrame(grp_search, fg_color="transparent")
-        input_frame.pack(fill="x", padx=10, pady=(0, 10))
-
-        self.api_entry = ctk.CTkEntry(input_frame, placeholder_text="Nom de l'artiste ou de l'album...")
-        self.api_entry.pack(side="left", fill="x", expand=True, padx=(0, 10))
-
-        self.api_btn = ctk.CTkButton(input_frame, text="🔍 Rechercher", width=100)
-        self.api_btn.pack(side="right")
-
+        # Section Résultats
         grp_result = ctk.CTkFrame(api_tab)
         grp_result.pack(fill="x", pady=10, padx=10, ipady=20)
-        ctk.CTkLabel(grp_result, text="Résultats de la recherche",
-                     anchor="w", font=ctk.CTkFont(weight="bold")).pack(fill="x", padx=10, pady=5)
-        ctk.CTkLabel(grp_result, text="Aucune recherche effectuée", text_color="gray").pack(expand=True)
+        ctk.CTkLabel(grp_result, text="Résultats de la recherche", 
+                    anchor="w", font=ctk.CTkFont(weight="bold")).pack(fill="x", padx=10, pady=5)
+        self.api_result_label = ctk.CTkLabel(grp_result, text="Aucune recherche effectuée", 
+                                            text_color="gray")
+        self.api_result_label.pack(expand=True)
 
+        # Section Paroles
         grp_lyrics = ctk.CTkFrame(api_tab)
         grp_lyrics.pack(fill="both", expand=True, pady=10, padx=10)
-        ctk.CTkLabel(grp_lyrics, text="Paroles",
-                     anchor="w", font=ctk.CTkFont(weight="bold")).pack(fill="x", padx=10, pady=5)
-        ctk.CTkLabel(grp_lyrics, text="Les paroles apparaîtront ici...", text_color="gray").pack(expand=True)
+        ctk.CTkLabel(grp_lyrics, text="Paroles", 
+                    anchor="w", font=ctk.CTkFont(weight="bold")).pack(fill="x", padx=10, pady=5)
+        
+        self.lyrics_text = ctk.CTkTextbox(grp_lyrics, wrap="word")
+        self.lyrics_text.pack(fill="both", expand=True, padx=10, pady=10)
+        self.lyrics_text.insert("1.0", "Les paroles apparaîtront ici...")
+        self.lyrics_text.configure(state="disabled", text_color="gray")
 
     # ============================================================
-    # PANNEAU DE DROITE (Playlist)
+    # PANNEAU DROIT - Playlist
     # ============================================================
     def create_right_panel(self):
         frame = ctk.CTkFrame(self.main_content)
         frame.grid(row=0, column=2, sticky="nsew", padx=(10, 0))
+        
         frame.grid_rowconfigure(1, weight=1)
+        frame.grid_columnconfigure(0, weight=1)
 
+        # Header
         header = ctk.CTkFrame(frame, fg_color="transparent")
         header.grid(row=0, column=0, sticky="ew", padx=10, pady=10)
+        ctk.CTkLabel(header, text="Playlist Actuelle", 
+                    font=ctk.CTkFont(size=14, weight="bold")).pack(side="left")
+        self.playlist_count_label = ctk.CTkLabel(header, text="0 morceaux", text_color="gray")
+        self.playlist_count_label.pack(side="left", padx=10, pady=(2,0))
 
-        ctk.CTkLabel(header, text="Playlist Actuelle",
-                     font=ctk.CTkFont(size=14, weight="bold")).pack(side="left")
-        ctk.CTkLabel(header, text="0 morceaux", text_color="gray").pack(side="left", padx=10)
+        # Zone playlist
+        self.playlist_scroll = ctk.CTkScrollableFrame(frame)
+        self.playlist_scroll.grid(row=1, column=0, sticky="nsew", padx=10)
 
-        empty_state = ctk.CTkFrame(frame, fg_color="transparent")
-        empty_state.grid(row=1, column=0)
-        ctk.CTkLabel(empty_state, text="≣", font=ctk.CTkFont(size=40), text_color="gray").pack()
-        ctk.CTkLabel(empty_state, text="Playlist vide\nGlissez-déposez des fichiers ici",
-                     text_color="gray").pack()
+        # Message vide
+        self.playlist_empty = ctk.CTkFrame(frame, fg_color="transparent")
+        self.playlist_empty.grid(row=1, column=0)
+        ctk.CTkLabel(self.playlist_empty, text="≣", 
+                    font=ctk.CTkFont(size=40), text_color="gray").pack()
+        ctk.CTkLabel(self.playlist_empty, 
+                    text="Playlist vide\nGlissez-déposez des fichiers ici", 
+                    text_color="gray").pack()
 
+        # Boutons
         btn_frame = ctk.CTkFrame(frame, fg_color="transparent")
         btn_frame.grid(row=2, column=0, sticky="ew", padx=10, pady=10)
 
-        self.btn_play = ctk.CTkButton(btn_frame, text="▷ Lire la Playlist",
-                                      fg_color="#00C853", hover_color="#009624")
+        self.btn_play = ctk.CTkButton(btn_frame, text="▷ Lire la Playlist", 
+                                     fg_color="#00C853", hover_color="#009624",
+                                     command=self.play_playlist)
         self.btn_play.pack(fill="x", pady=5)
 
-        self.btn_save_xspf = ctk.CTkButton(btn_frame, text="💾 Sauvegarder (XSPF)",
-                                           fg_color="#455A64", hover_color="#37474F")
+        self.btn_save_xspf = ctk.CTkButton(btn_frame, text="💾 Sauvegarder (XSPF)", 
+                                          fg_color="#455A64", hover_color="#37474F",
+                                          command=self.save_playlist_dialog)
         self.btn_save_xspf.pack(fill="x", pady=5)
-    def show_metadata(self, file_path):
-        if not file_path:
+
+    # ============================================================
+    # FONCTIONS PRINCIPALES
+    # ============================================================
+    
+    def open_directory(self):
+        """Ouvre un dossier et explore les fichiers audio"""
+        directory_path = filedialog.askdirectory(title="Sélectionner un dossier")
+        
+        if not directory_path:
             return
         
-        self.current_file_path = file_path  # ← Garder le fichier actuel
+        if not os.path.isdir(directory_path):
+            messagebox.showerror("Erreur", "Le dossier n'existe pas")
+            return
         
-        meta = Metadata(file_path)
+        self.footer_label.configure(text="Exploration en cours...")
+        self.update_idletasks()
+        self.update()
+        
+        self.current_directory = Directory(directory_path)
+        self.current_directory.exploration_dir()
+        
+        self.update_file_list()
+
+    def update_file_list(self):
+        """Met à jour la liste des fichiers"""
+        if not self.current_directory:
+            return
+        
+        for widget in self.file_scroll.winfo_children():
+            widget.destroy()
+        self.file_items.clear()
+        
+        for metadata in self.current_directory.files:
+            self.create_file_item(metadata)
+        
+        self.file_scroll.update()
+        self.file_scroll._parent_canvas.update_idletasks()
+        self.update()
+        
+        count = len(self.current_directory.files)
+        self.footer_label.configure(text=f"Prêt | {count} fichiers trouvés")
+        
+        if count == 0:
+            empty_label = ctk.CTkLabel(self.file_scroll, 
+                                      text="Aucun fichier MP3/FLAC trouvé dans ce dossier",
+                                      text_color="gray")
+            empty_label.pack(pady=20)
+
+    def display_metadata(self, metadata: Metadata):
+        """Affiche les métadonnées d'un fichier sélectionné"""
+        self.selected_file = metadata
+        
+        # Masquer le placeholder, afficher le contenu
+        self.meta_placeholder.pack_forget()
+        self.meta_content.pack(fill="both", expand=True)
+        
+        # Remplir les champs
         self.title_entry.delete(0, "end")
-        self.artist_entry.delete(0, "end")
-        self.album_entry.delete(0, "end")
-        self.year_entry.delete(0, "end")
-        self.duration_entry.delete(0, "end")
-        self.genre_entry.delete(0, "end")
-        self.title_entry.insert(0, meta.title or "")
-        self.artist_entry.insert(0, meta.artist or "")
-        self.album_entry.insert(0, meta.album or "")
-        self.year_entry.insert(0, meta.year or "")
-        self.duration_entry.insert(0, meta.duration or "")
-        self.genre_entry.insert(0, meta.genre or "")
+        self.title_entry.insert(0, metadata.title or "")
         
-        if meta.cover:
+        self.artist_entry.delete(0, "end")
+        self.artist_entry.insert(0, metadata.artist or "")
+        
+        self.album_entry.delete(0, "end")
+        self.album_entry.insert(0, metadata.album or "")
+        
+        self.year_entry.delete(0, "end")
+        self.year_entry.insert(0, metadata.year or "")
+        
+        # Durée (readonly)
+        self.duration_entry.configure(state="normal")
+        self.duration_entry.delete(0, "end")
+        self.duration_entry.insert(0, metadata.duration or "--:--")
+        self.duration_entry.configure(state="readonly")
+        
+        self.genre_entry.delete(0, "end")
+        self.genre_entry.insert(0, metadata.genre or "")
+
+        # --- GESTION DE LA COVER (NOUVEAU) ---
+        if metadata.cover:
             try:
-                meta.cover.seek(0)
-                img = Image.open(meta.cover).resize((230, 230))
+                # Réinitialiser le curseur (si déjà lu)
+                metadata.cover.seek(0)
+                # Ouvrir et redimensionner l'image pour l'affichage
+                img = Image.open(metadata.cover).resize((230, 230))
+                # Créer l'objet CTkImage pour l'afficher
                 self.cover_image_tk = ctk.CTkImage(light_image=img, dark_image=img, size=(230, 230))
-                self.cover_label.configure(image=self.cover_image_tk)
-                self.cover_label.configure(text="")
+                self.cover_label.configure(image=self.cover_image_tk, text="")
             except Exception as e:
                 print(f"Erreur chargement cover: {e}")
-                import traceback
-                traceback.print_exc()
                 self.cover_image_tk = None
-                self.cover_label.configure(image="")
-                self.cover_label.configure(text="Couverture d'album")
+                self.cover_label.configure(image="", text="🖼\nCouverture d'album")
         else:
             self.cover_image_tk = None
-            self.cover_label.configure(image="")
-            self.cover_label.configure(text="Couverture d'album")
+            self.cover_label.configure(image="", text="🖼\nCouverture d'album")
+        
+        # Switch vers l'onglet métadonnées
+        self.tab_view.set("Métadonnées")
 
-        # ============================================================
-        # --- EXTRACTION + SAUVEGARDE AUTOMATIQUE DE LA COVER ---
-        # ============================================================
-        album = meta.album or ""
-        artist = meta.artist or ""
+    def save_metadata(self):
+        if not self.selected_file:
+            messagebox.showinfo("Info", "Aucun fichier sélectionné")
+            return
+        new_tags = {
+        "title": self.title_entry.get(),
+        "artist": self.artist_entry.get(),
+        "album": self.album_entry.get(),
+        "year": self.year_entry.get(),
+        "genre": self.genre_entry.get()
+    }
+    
+        try:
+            if self.selected_file.file_path.lower().endswith(".mp3"):
+                audio = Mp3File(self.selected_file.file_path)
+            else:
+                audio = FlacFile(self.selected_file.file_path)
+            audio.save_tags(**new_tags) 
+            if self.selected_file.cover:
+                self.selected_file.cover.seek(0)
+                cover_data = self.selected_file.cover.read()
+                if cover_data:
+                    album_dir = os.path.dirname(self.selected_file.file_path)
+                    cover_path = os.path.join(album_dir, "cover.jpg")
+                    with open(cover_path, "wb") as f:
+                        f.write(cover_data)
+            self.selected_file.extract_tags()
+            self.display_metadata(self.selected_file) 
+        
+            messagebox.showinfo("Succès", "Métadonnées et/ou Cover sauvegardées avec succès")
+        
+   
+        except Exception as e:
+            err = str(e)
+            messagebox.showerror("Erreur d'écriture", 
+                            f"Impossible de sauvegarder. Vérifiez les permissions et le chemin d'accès. Erreur: {err}")
 
-        if meta.cover and album and artist:
-            try:
-                album_dir = os.path.dirname(self.current_file_path)
-                cover_path = os.path.join(album_dir, "cover.jpg")
-                
-                meta.cover.seek(0)
-                img = Image.open(meta.cover)
-                img.save(cover_path, "JPEG")
-
-                print(f"✓ Cover extraite et sauvegardée : {cover_path}")
-
-            except Exception as e:
-                print(f"Erreur extraction cover : {e}")
-
-
+    # ============================================================
+    # FONCTIONS DE GESTION DE COVER (NOUVELLES)
+    # ============================================================
     def download_and_save_cover(self):
         """Télécharge une cover si absente, affiche et demande validation avant sauvegarde"""
+        if not self.selected_file:
+            messagebox.showinfo("Info", "Veuillez sélectionner un fichier d'abord")
+            return
+
         artist = self.artist_entry.get().strip()
         album = self.album_entry.get().strip()
 
         if not artist or not album:
-            print("⚠ Veuillez renseigner l'artiste et l'album")
+            messagebox.showwarning("Attention", "Veuillez renseigner **l'artiste** et **l'album** pour la recherche.")
             return
 
-        if not hasattr(self, 'current_file_path') or not self.current_file_path:
-            print("⚠ Aucun fichier sélectionné")
-            return
+        # Si une cover existe déjà, on ne fait rien
+        if self.selected_file.cover:
+             messagebox.showinfo("Info", "Une cover existe déjà dans le fichier")
+             return
 
-        meta = Metadata(self.current_file_path)
+        # Affichage du statut pendant la recherche
+        self.btn_download_cover.configure(text="Recherche en cours...", state="disabled")
+        self.update()
 
-        # --- SI UNE COVER EXISTE DÉJÀ ---
-        if meta.cover:
-            print("✓ Une cover existe déjà dans le fichier")
-            return self.show_metadata(self.current_file_path)
+        def fetch_in_thread():
+            cover_data = fetch_cover_from_itunes(artist, album)
+            if not cover_data:
+                cover_data = fetch_cover_from_musicbrainz(artist, album)
+            
+            self.after(0, lambda: self._handle_cover_result(cover_data))
 
-        # --- Sinon → téléchargement internet ---
-        print("🔍 Recherche d'une cover en ligne...")
+        threading.Thread(target=fetch_in_thread, daemon=True).start()
 
-        cover_data = fetch_cover_from_itunes(artist, album)
+    def _handle_cover_result(self, cover_data):
+        """Gère le résultat de la recherche de cover (appelé depuis le thread)"""
+        self.btn_download_cover.configure(text="Télécharger depuis Internet", state="normal")
+
         if not cover_data:
-            print("🔄 Tentative avec MusicBrainz…")
-            cover_data = fetch_cover_from_musicbrainz(artist, album)
-
-        if not cover_data:
-            print("✗ Aucune cover trouvée")
+            messagebox.showwarning("Info", "Aucune cover trouvée en ligne.")
             return
 
-        # --- AFFICHAGE pour validation ---
-        img = Image.open(io.BytesIO(cover_data)).resize((230, 230))
-        self.cover_image_tk = ctk.CTkImage(light_image=img, dark_image=img, size=(230, 230))
-        self.cover_label.configure(image=self.cover_image_tk, text="")
+        try:
+            # Affichage de la cover dans la fenêtre principale
+            img = Image.open(io.BytesIO(cover_data)).resize((230, 230))
+            self.cover_image_tk = ctk.CTkImage(light_image=img, dark_image=img, size=(230, 230))
+            self.cover_label.configure(image=self.cover_image_tk, text="")
 
-        # --- Popup de validation utilisateur ---
-        popup = ctk.CTkToplevel(self)
-        popup.title("Valider la couverture")
-        popup.geometry("300x350")
+            # --- Popup de validation utilisateur ---
+            popup = ctk.CTkToplevel(self)
+            popup.title("Valider la couverture")
+            popup.geometry("300x350")
+            popup.attributes('-topmost', True) # Rendre la popup toujours visible
 
-        ctk.CTkLabel(popup, text="Confirmez-vous cette cover ?").pack(pady=10)
-        img_label = ctk.CTkLabel(popup, image=self.cover_image_tk, text="")
-        img_label.pack(pady=10)
+            ctk.CTkLabel(popup, text="Confirmez-vous cette cover ?").pack(pady=10)
+            img_label = ctk.CTkLabel(popup, image=self.cover_image_tk, text="")
+            img_label.pack(pady=10)
 
-        def accept():
-            self._save_validated_cover(cover_data)
-            popup.destroy()
+            def accept():
+                # Lancer la sauvegarde dans un autre thread (car cela implique une écriture sur disque)
+                threading.Thread(target=lambda: self._save_validated_cover_in_thread(cover_data), 
+                                 daemon=True).start()
+                popup.destroy()
+                self.btn_download_cover.configure(text="Sauvegarde en cours...", state="disabled")
 
-        def refuse():
-            popup.destroy()
-            print("✗ L'utilisateur a refusé la cover")
+            def refuse():
+                popup.destroy()
+                self.display_metadata(self.selected_file) # Réaffiche l'état initial (sans cover)
+                messagebox.showinfo("Info", "L'opération a été annulée.")
 
-        ctk.CTkButton(popup, text="✓ Oui", fg_color="#4CAF50", command=accept).pack(fill="x", padx=20, pady=5)
-        ctk.CTkButton(popup, text="✗ Non", fg_color="#F44336", command=refuse).pack(fill="x", padx=20, pady=5)
-    def _save_validated_cover(self, cover_data):
-        """Sauvegarde la cover dans le fichier et dans le dossier de l'album"""
-        meta = Metadata(self.current_file_path)
+            ctk.CTkButton(popup, text="✓ Oui", fg_color="#4CAF50", command=accept).pack(fill="x", padx=20, pady=5)
+            ctk.CTkButton(popup, text="✗ Non", fg_color="#F44336", command=refuse).pack(fill="x", padx=20, pady=5)
+            
+        except Exception as e:
+            print(f"Erreur lors de l'affichage de la cover: {e}")
+            messagebox.showerror("Erreur", "Impossible d'afficher la cover téléchargée.")
+            self.display_metadata(self.selected_file)
 
-        # Sauvegarde dans le fichier audio
-        if meta.save_cover(cover_data):
-            print("✓ Cover sauvegardée dans les métadonnées")
+    def _save_validated_cover_in_thread(self, cover_data):
+        """Sauvegarde la cover dans le fichier et le dossier (en thread)"""
+        try:
+            if self.selected_file.file_path.lower().endswith(".mp3"):
+                audio_file = Mp3File(self.selected_file.file_path)
+            else:
+                audio_file = FlacFile(self.selected_file.file_path)
+            audio_file.save_cover(cover_data)
+            # 2. Sauvegarde dans le dossier de l'album (cover.jpg)
+            album_dir = os.path.dirname(self.selected_file.file_path)
+            cover_path = os.path.join(album_dir, "cover.jpg")
+            with open(cover_path, "wb") as f:
+                f.write(cover_data)
 
-        # Sauvegarde dans le dossier
-        album_dir = os.path.dirname(self.current_file_path)
-        cover_path = os.path.join(album_dir, "cover.jpg")
-        with open(cover_path, "wb") as f:
-            f.write(cover_data)
+            # 3. Mise à jour de l'interface principale (dans le thread UI)
+            self.selected_file.extract_tags()
+            self.after(0, lambda: self.display_metadata(self.selected_file))
+            self.after(0, lambda: messagebox.showinfo("Succès", "Cover sauvegardée avec succès!"))
+        except Exception as e:
+            err = str(e)
+            self.after(0, lambda err=err: messagebox.showerror("Erreur", f"Impossible de sauvegarder la cover: {err}"))
 
-        print(f"✓ Cover enregistrée dans : {cover_path}")
+        finally:
+            self.after(0, lambda: self.btn_download_cover.configure(text="Télécharger depuis Internet", state="normal"))
 
-        self.show_metadata(self.current_file_path)
-    def save_metadata(self):
-        if not hasattr(self, 'current_file_path') or not self.current_file_path:
-            print("⚠ Aucun fichier sélectionné")
+
+    def play_selected_file(self):
+        # ... (La fonction reste la même que dans le code initial)
+        if not self.selected_file:
+            messagebox.showinfo("Info", "Aucun fichier sélectionné")
             return
-        meta = Metadata(self.current_file_path)
-        meta.title = self.title_entry.get().strip()
-        meta.artist = self.artist_entry.get().strip()
-        meta.album = self.album_entry.get().strip()
-        meta.year = self.year_entry.get().strip()
-        meta.genre = self.genre_entry.get().strip()
-        success = meta.save_tags()  # ← cette méthode doit exister dans Metadata
-        if success:
-            print("✓ Tags sauvegardés avec succès !")
-            self.show_metadata(self.current_file_path)
+        
+        if self.is_playing and self.current_audio:
+            self.stop_playback()
+            return
+        
+        try:
+            if self.selected_file.file_path.lower().endswith(".mp3"):
+                self.current_audio = Mp3File(self.selected_file.file_path)
+            else:
+                self.current_audio = FlacFile(self.selected_file.file_path)
+            
+            self.is_playing = True
+            self.btn_play_file.configure(text="⏹ Arrêter", fg_color="#C62828")
+            
+            def play():
+                try:
+                    self.current_audio.play()
+                except Exception as e:
+                    print(f"Erreur de lecture: {e}")
+                finally:
+                    self.is_playing = False
+                    self.after(0, lambda: self.btn_play_file.configure(
+                        text="▷ Lire le Morceau", fg_color="#2196F3"))
+            
+            threading.Thread(target=play, daemon=True).start()
+            
+        except Exception as e:
+            messagebox.showerror("Erreur", f"Impossible de lire le fichier: {e}")
+            self.is_playing = False
+    
+    def stop_playback(self):
+        # ... (La fonction reste la même que dans le code initial)
+        if self.current_audio:
+            try:
+                self.current_audio.stop()
+            except:
+                pass
+        self.is_playing = False
+        self.btn_play_file.configure(text="▷ Lire le Morceau", fg_color="#2196F3")
+
+    def add_to_playlist(self, metadata: Metadata):
+        # ... (La fonction reste la même que dans le code initial)
+        if metadata not in self.playlist:
+            self.playlist.append(metadata)
+            self.update_playlist_display()
+
+    def update_playlist_display(self):
+        # ... (La fonction reste la même que dans le code initial)
+        if self.playlist:
+            self.playlist_empty.grid_forget()
+            self.playlist_scroll.grid(row=1, column=0, sticky="nsew", padx=10)
         else:
-            print("✗ Erreur lors de la sauvegarde des tags")
+            self.playlist_scroll.grid_forget()
+            self.playlist_empty.grid(row=1, column=0)
+        
+        for widget in self.playlist_scroll.winfo_children():
+            widget.destroy()
+        
+        for idx, meta in enumerate(self.playlist):
+            self.create_playlist_item(meta, idx)
+        
+        self.playlist_count_label.configure(text=f"{len(self.playlist)} morceaux")
 
+    def create_playlist_item(self, metadata: Metadata, index: int):
+        # ... (La fonction reste la même que dans le code initial)
+        item = ctk.CTkFrame(self.playlist_scroll, fg_color=("#3b3b3b", "#2b2b2b"))
+        item.pack(fill="x", pady=2)
+        
+        ctk.CTkLabel(item, text=f"{index+1}.", width=30).pack(side="left", padx=5)
+        
+        info = ctk.CTkFrame(item, fg_color="transparent")
+        info.pack(side="left", fill="both", expand=True)
+        title = metadata.title if metadata.title else metadata.file_name
+        ctk.CTkLabel(info, text=title, anchor="w", 
+                    font=ctk.CTkFont(size=11)).pack(fill="x")
+        
+        btn_remove = ctk.CTkButton(item, text="✕", width=25, 
+                                  fg_color="transparent", hover_color="#C62828",
+                                  command=lambda m=metadata: self.remove_from_playlist(m))
+        btn_remove.pack(side="right", padx=5)
 
-    def open_folder(self):
-        """Ouvre un dossier et scanne les fichiers audio"""
-        folder = filedialog.askdirectory()
-        if not folder:
+    def remove_from_playlist(self, metadata: Metadata):
+        # ... (La fonction reste la même que dans le code initial)
+        if metadata in self.playlist:
+            self.playlist.remove(metadata)
+            self.update_playlist_display()
+
+    def play_playlist(self):
+        # ... (La fonction reste la même que dans le code initial)
+        if not self.playlist:
+            messagebox.showinfo("Info", "La playlist est vide")
             return
+        
+        self.btn_play.configure(state="disabled", text="⏸ Lecture en cours...")
+        
+        def play_all():
+            for idx, metadata in enumerate(self.playlist):
+                try:
+                    self.after(0, lambda i=idx, m=metadata: 
+                              self.footer_label.configure(
+                                  text=f"♫ Lecture: {m.title or m.file_name} ({i+1}/{len(self.playlist)})"
+                              ))
+                    
+                    if metadata.file_path.lower().endswith(".mp3"):
+                        audio = Mp3File(metadata.file_path)
+                    else:
+                        audio = FlacFile(metadata.file_path)
+                    
+                    audio.play()
+                    
+                except Exception as e:
+                    print(f"Erreur lors de la lecture de {metadata.file_name}: {e}")
+                    continue
+            
+            self.after(0, lambda: self.btn_play.configure(state="normal", text="▷ Lire la Playlist"))
+            self.after(0, lambda: self.footer_label.configure(text=f"Prêt | Playlist terminée"))
+        
+        threading.Thread(target=play_all, daemon=True).start()
 
-        self.directory = Directory(folder)
-        self.directory.exploration_dir()
-        self.load_files_to_ui()
-
-    def load_files_to_ui(self):
-        """Charge les fichiers dans l'explorateur de gauche"""
-        for child in self.file_scroll.winfo_children():
-            child.destroy()
-
-        if not self.directory or not self.directory.files:
-            self.create_file_item("Aucun fichier audio", "Dossier vide")
+    def open_playlist(self):
+        # ... (La fonction reste la même que dans le code initial)
+        filename = filedialog.askopenfilename(
+            title="Ouvrir une playlist",
+            filetypes=[("XSPF Playlist", ".xspf"), ("Tous les fichiers", ".*")]
+        )
+        
+        if not filename:
             return
+        
+        try:
+            import xml.etree.ElementTree as ET
+            ns = {'xspf': 'http://xspf.org/ns/0/'}
+            tree = ET.parse(filename)
+            root = tree.getroot()
+            self.playlist.clear()
+            tracklist = root.find('xspf:trackList', ns)
+            if tracklist is None:
+                messagebox.showerror("Erreur", "Format de playlist invalide")
+                return
+            
+            loaded_count = 0
+            for track in tracklist.findall('xspf:track', ns):
+                location = track.find('xspf:location', ns)
+                if location is not None:
+                    file_path = location.text
+                    if file_path.startswith('file://'):
+                        file_path = file_path[7:]
+                    
+                    if os.path.exists(file_path):
+                        metadata = Metadata(file_path)
+                        self.playlist.append(metadata)
+                        loaded_count += 1
+                    else:
+                        print(f"Fichier introuvable: {file_path}")
+            
+            self.update_playlist_display()
+            
+            messagebox.showinfo("Succès", 
+                              f"Playlist chargée avec succès!\n{loaded_count} morceaux ajoutés")
+            
+        except Exception as e:
+            messagebox.showerror("Erreur", f"Impossible d'ouvrir la playlist: {e}")
 
-        for m in self.directory.files:
-            title = os.path.basename(m.file_path)
-            subtitle = f"{m.artist or 'Artiste inconnu'} - {m.title or 'Titre inconnu'}"
-            self.create_file_item(title, subtitle, file_path=m.file_path)
+    def save_playlist_dialog(self):
+        # ... (La fonction reste la même que dans le code initial)
+        if not self.playlist:
+            messagebox.showwarning("Attention", "La playlist est vide")
+            return
+        
+        filename = filedialog.asksaveasfilename(
+            defaultextension=".xspf",
+            filetypes=[("XSPF Playlist", ".xspf"), ("Tous les fichiers", ".*")]
+        )
+        
+        if not filename:
+            return
+        
+        try:
+            temp_dir = Directory(".")
+            temp_dir.files = self.playlist
+            temp_dir.generate_xspf_playlist(filename)
+            
+            messagebox.showinfo("Succès", f"Playlist sauvegardée: {filename}")
+        except Exception as e:
+            messagebox.showerror("Erreur", f"Impossible de sauvegarder: {e}")
 
-        self.footer_label.configure(text=f"Prêt | {len(self.directory.files)} fichiers trouvés")
+    def search_api(self):
+        """Recherche les paroles via l'API pour le morceau sélectionné (lancé en thread)."""
+        if not self.selected_file:
+            messagebox.showinfo("Info", "Veuillez sélectionner un fichier d'abord pour voir les paroles.")
+            return
+        
+        # Mise à jour de l'UI pour indiquer l'attente
+        self.api_result_label.configure(text="Recherche en cours... (Ne pas bloquer l'UI)", text_color="#2196F3")
+        
+        # Le bouton de recherche (self.api_btn) et le nouveau bouton (self.btn_fetch_lyrics) appellent cette fonction
+        # Nous désactivons les deux pour éviter les clics multiples pendant la recherche.
+        self.api_btn.configure(state="disabled")
+        if hasattr(self, 'btn_fetch_lyrics'):
+            self.btn_fetch_lyrics.configure(state="disabled")
+        
+        def fetch():
+            # Nécessite l'implémentation de la méthode fetch_lyrics dans la classe Metadata
+            self.selected_file.fetch_lyrics() 
+            self.after(0, self.display_lyrics)
+        
+        threading.Thread(target=fetch, daemon=True).start()
 
+    def display_lyrics(self):
+        """Affiche les paroles récupérées et met le statut en rouge en cas d'échec."""
+        
+        # Réactiver les boutons
+        self.api_btn.configure(state="normal")
+        if hasattr(self, 'btn_fetch_lyrics'):
+            self.btn_fetch_lyrics.configure(state="normal")
+        
+        # Logique d'affichage
+        if self.selected_file and self.selected_file.lyrics and "Paroles introuvables" not in self.selected_file.lyrics and "Erreur" not in self.selected_file.lyrics:
+            # === CAS SUCCÈS ===
+            self.lyrics_text.configure(state="normal", text_color="white")
+            self.lyrics_text.delete("1.0", "end")
+            self.lyrics_text.insert("1.0", self.selected_file.lyrics)
+            self.lyrics_text.configure(state="disabled")
+            self.api_result_label.configure(text="✓ Paroles trouvées avec succès!", text_color="#00C853")
+        else:
+            # === CAS ÉCHEC (Affiche en ROUGE) ===
+            
+            # Déterminer le message d'erreur pour la zone de texte
+            # Si self.selected_file.lyrics est non vide, cela contient l'erreur détaillée (Timeout, 404, etc.)
+            error_message = self.selected_file.lyrics if self.selected_file.lyrics and "Erreur" in self.selected_file.lyrics else "Paroles introuvables. L'API n'a pas trouvé le titre."
+
+            # Afficher le statut en ROUGE
+            self.api_result_label.configure(text="✗ Paroles introuvables.", text_color="red")
+            
+            # Afficher le détail de l'erreur dans la zone de texte
+            self.lyrics_text.configure(state="normal")
+            self.lyrics_text.delete("1.0", "end")
+            self.lyrics_text.insert("1.0", error_message)
+            self.lyrics_text.configure(state="disabled", text_color="gray")
 
 if __name__ == "__main__":
     app = MusicApp()
