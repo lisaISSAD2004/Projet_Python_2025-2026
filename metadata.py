@@ -6,6 +6,7 @@ from mutagen.easyid3 import EasyID3
 from mutagen.flac import FLAC, Picture
 from mutagen.id3 import ID3, APIC
 from urllib.parse import quote
+from requests.exceptions import Timeout, RequestException, ConnectionError
 
 
 class Metadata:
@@ -70,7 +71,16 @@ class Metadata:
         except Exception as e:
             print(f"Erreur extraction durée pour {self.file_path}: {e}")
             self.duration = ""
-    
+    def display_lyrics(self):
+        """Affiche les paroles si elles ont été chargées"""
+        if self.lyrics:
+            print("\n" + "📝 PAROLES" + "\n" + "="*50)
+            print(self.lyrics)
+            print("="*50 + "\n")
+        elif self.lyrics is not None and not self.lyrics: # Si fetch_lyrics a réussi mais n'a rien trouvé
+            print("\n✗ Paroles introuvables pour ce titre.")
+        else: # Si lyrics est None (pas encore chargé ou échec réseau)
+            print("\n✗ Les paroles n'ont pas été chargées ")
     def extract_cover(self):
         try:
             if self.file_path.lower().endswith(".mp3"):
@@ -139,107 +149,62 @@ class Metadata:
             traceback.print_exc()
             return False
     
-    def save_cover_mp3(self, cover_data: bytes):
-        """Ajoute ou remplace la jaquette d'un fichier MP3"""
-        try:
-            # CORRECTION 4: Créer ID3 si nécessaire
-            try:
-                audio = ID3(self.file_path)
-            except:
-                audio = ID3()
+   
             
-            # Supprimer les anciennes covers
-            audio.delall("APIC")
-            
-            # Ajouter la nouvelle cover
-            audio.add(
-                APIC(
-                    encoding=3,
-                    mime='image/jpeg',
-                    type=3,
-                    desc='Cover',
-                    data=cover_data
-                )
-            )
-            audio.save(self.file_path)
-            
-            # Mettre à jour l'objet
-            self.cover = io.BytesIO(cover_data)
-            self.cover.seek(0)
-            print(f"✓ Cover ajoutée au MP3 : {self.file_name}")
-            return True
-            
-        except Exception as e:
-            print(f"Erreur ajout cover MP3 : {e}")
-            import traceback
-            traceback.print_exc()
-            return False
     
-    def save_cover_flac(self, cover_data: bytes):
-        """Ajoute ou remplace la jaquette d'un fichier FLAC"""
-        try:
-            audio = FLAC(self.file_path)
-            
-            # Supprimer les anciennes covers
-            audio.clear_pictures()
-            
-            # Créer et ajouter la nouvelle cover
-            pic = Picture()
-            pic.data = cover_data
-            pic.type = 3  # Front cover
-            pic.mime = "image/jpeg"
-            # CORRECTION 5: Dimensions optionnelles
-            pic.width = 0
-            pic.height = 0
-            pic.depth = 24
-            
-            audio.add_picture(pic)
-            audio.save()
-            
-            # Mettre à jour l'objet
-            self.cover = io.BytesIO(cover_data)
-            self.cover.seek(0)
-            print(f"✓ Cover ajoutée au FLAC : {self.file_name}")
-            return True
-            
-        except Exception as e:
-            print(f"Erreur ajout cover FLAC : {e}")
-            import traceback
-            traceback.print_exc()
-            return False
     
-    def save_cover(self, cover_data: bytes):
-        """Sauvegarde la cover selon le format du fichier"""
-        if self.file_path.lower().endswith(".mp3"):
-            return self.save_cover_mp3(cover_data)
-        elif self.file_path.lower().endswith(".flac"):
-            return self.save_cover_flac(cover_data)
-        else:
-            print("Format de fichier non supporté pour la cover")
-            return False
-    
+
     def fetch_lyrics(self):
-        """Récupère les paroles depuis l'API lyrics.ovh"""
         if not self.artist or not self.title:
             print("⚠ Artiste ou titre manquant pour récupérer les paroles")
             return False
-        
         url = f"https://api.lyrics.ovh/v1/{quote(self.artist)}/{quote(self.title)}"
         
         try:
-            print(f"🔍 Recherche paroles : {self.artist} - {self.title}")
-            resp = requests.get(url, timeout=10)
+            print(f"🔍 Recherche paroles : {self.artist} - {self.title} (Via lyrics.ovh)")
             
+            # Utilisation de Timeout, ConnectionError et RequestException pour un meilleur diagnostic
+            resp = requests.get(url, timeout=10)
+            resp.raise_for_status() # Lève une exception pour les codes 4xx/5xx
+
             if resp.status_code == 200:
-                self.lyrics = resp.json().get("lyrics")
-                print("✓ Paroles récupérées avec succès")
-                return True
-            else:
-                print(f"✗ Paroles introuvables (status {resp.status_code})")
-                return False
-                
+                data = resp.json()
+                # L'API retourne un dictionnaire vide si les paroles ne sont pas trouvées (en plus du 404)
+                if 'lyrics' in data:
+                    self.lyrics = data['lyrics']
+                    print("✓ Paroles récupérées avec succès")
+                    return True
+                else:
+                    self.lyrics = None # Assurez-vous que c'est None en cas d'échec
+                    print("✗ Paroles introuvables dans la réponse de l'API.")
+                    return False
+        except Timeout:
+            print("✗ Erreur récupération lyrics : Le temps d'attente (timeout) a été dépassé.")
+            self.lyrics = None
+            return False
+        
+        except ConnectionError as e:
+            # Capture spécifiquement l'erreur de résolution de nom (DNS) ou de connexion
+            print(f"✗ Erreur récupération lyrics : Impossible de se connecter à l'hôte (DNS ou réseau). Détails: {e}")
+            self.lyrics = None
+            return False
+            
+        except requests.HTTPError as e:
+            # Gère les statuts d'erreur HTTP (404 Not Found, 500 Server Error, etc.)
+            print(f"✗ Paroles introuvables (Erreur HTTP {e.response.status_code}).")
+            self.lyrics = None
+            return False
+            
+        except RequestException as e:
+            # Attrape toute autre erreur de la librairie requests
+            print(f"✗ Erreur récupération lyrics : Problème lors de la requête HTTP. Détails: {e}")
+            self.lyrics = None
+            return False
+        
         except Exception as e:
-            print(f"✗ Erreur récupération lyrics : {e}")
+            # Pour toute autre exception (ex: erreur de décodage JSON)
+            print(f"✗ Erreur inattendue lors de la récupération des paroles. Détails: {e}")
+            self.lyrics = None
             return False
     
     def display_tags(self):
