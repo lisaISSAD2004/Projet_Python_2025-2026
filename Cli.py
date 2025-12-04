@@ -11,7 +11,7 @@ def main():
     parser = argparse.ArgumentParser(
         prog="python3 Cli.py",
         description=(
-            "🎧 Command Line Interface for managing MP3/FLAC audio files.\n\n"
+            "Command Line Interface for managing MP3/FLAC audio files.\n\n"
             "You can list, play, inspect, or edit metadata tags of your songs."
         ),
         formatter_class=argparse.RawTextHelpFormatter
@@ -51,7 +51,7 @@ def main():
 
     # --- No arguments ---
     if len(sys.argv) == 1:
-        print("❌ Error: no parameters provided.")
+        print("Error: no parameters provided.")
         print("Type 'python3 Cli.py -h' or '--help' for usage information.")
         sys.exit(1)
 
@@ -60,15 +60,13 @@ def main():
         directory = Directory(args.directory)
         directory.dir_exist()
         directory.exploration_dir()
-        print("\n🎵 Audio files found:")
-        for meta in directory.files:
-            print(f"{meta.file_path} -> {meta.artist} - {meta.title}")
-            meta.display_tags()
+        
+        
 
         if args.output:
             try:
                 directory.generate_xspf_playlist(args.output)
-                print(f"✅ Playlist saved as: {args.output}")
+                print(f"Playlist saved as: {args.output}")
             except AttributeError:
                 print(" The method generate_xspf_playlist() is not implemented yet.")
 
@@ -77,7 +75,7 @@ def main():
         from Metadata import Metadata
         meta = Metadata(args.file)
         meta.display_tags()
-        print("\n🎤 Fetching lyrics...")
+        print("\nFetching lyrics...")
         meta.fetch_lyrics()
         meta.display_lyrics()
 
@@ -89,21 +87,21 @@ def main():
         elif path.lower().endswith(".flac"):
             audio = FlacFile(path)
         else:
-            print("❌ Unsupported format. Use MP3 or FLAC.")
+            print("Unsupported format. Use MP3 or FLAC.")
             sys.exit(1)
 
         print(f"Playing file: {path}")
         try:
             audio.play()
         except AttributeError:
-            print("⚠️ The play() method is not yet implemented.")
+            print(" The play() method is not yet implemented.")
 
     # --- Case 4: Update tags ---
     elif args.update_tags:
         update_data = {}
         for pair in args.update_tags:
             if "=" not in pair:
-                print(f"❌ Invalid argument: {pair}. Must be in key=value format.")
+                print(f" Invalid argument: {pair}. Must be in key=value format.")
                 sys.exit(1)
             key, value = pair.split("=", 1)
             update_data[key] = value.strip('"').strip("'")
@@ -119,7 +117,7 @@ def main():
         elif file_path.lower().endswith(".flac"):
             audio = FlacFile(file_path)
         else:
-            print("❌ Unsupported format. Use MP3 or FLAC.")
+            print("Unsupported format. Use MP3 or FLAC.")
             sys.exit(1)
        
         audio.save_tags(
@@ -131,7 +129,7 @@ def main():
 
         
 
-        print(f"✅ Tags successfully updated for: {file_path}")
+        print(f" Tags successfully updated for: {file_path}")
 
 
 if __name__ == "__main__":
