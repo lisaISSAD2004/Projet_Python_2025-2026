@@ -7,17 +7,14 @@ try:
 except ImportError:
     pygame = None
 
-
 class AudioFile(File, ABC):
     """
     Classe abstraite représentant un fichier audio générique.
     Sert de base aux classes Mp3File et FlacFile.
     """
-
     def __init__(self, path: str):
         super().__init__(path)
         self.metadata: Metadata = Metadata(self.path)
-
         self.duration: float = 0.0
 
     # --- Méthodes abstraites ---
@@ -36,52 +33,38 @@ class AudioFile(File, ABC):
         """Retourne la durée du morceau."""
         return self.duration
 
-    
-    def play(self):
-        print(f"▶ Lecture de : {self.path}")
-        pygame.mixer.init()
-        pygame.mixer.music.load(self.path)
-        pygame.mixer.music.play()
-        while pygame.mixer.music.get_busy():  # attend que la lecture se termine
-            time.sleep(0.1)
-    def stop(self) -> None:
+    def stop(self, silent: bool = False) -> None:
         """Arrête la lecture audio."""
         if pygame:
             pygame.mixer.music.stop()
-            print("Lecture arrêtée.")
-# --- Classe AudioFile (Modifié) ---
+            if not silent:
+                print("Lecture arrêtée.")
 
     def play(self):
         if not pygame:
             print("Erreur : pygame n'est pas installé. Lecture impossible.")
             return
-
+        
         print(f"▶ Lecture de : {self.path}")
         
-        # Initialisation déplacée dans la CLI pour être sûr
-        # Mais nous la laissons ici pour l'exemple
-        pygame.mixer.init()
-        pygame.mixer.music.load(self.path)
-        pygame.mixer.music.play()
-        
-        # --- NOUVELLE LOGIQUE INTERACTIVE ---
-        print("Appuyez sur 'q' et ENTER pour arrêter la lecture et revenir au shell.")
-        
-        # Nous utilisons une boucle pour maintenir le programme en vie 
-        # tant que la musique joue et qu'on n'a pas tapé 'q'.
-        while pygame.mixer.music.get_busy():
-            try:
-                # Utiliser input() pour attendre la saisie utilisateur
-                # Cette approche est la plus simple en CLI pour un thread bloquant.
-                user_input = input() 
-                if user_input.lower() == 'q':
-                    self.stop()
-                    break # Sortir de la boucle while
-            except EOFError:
-                # Si l'entrée se termine (rare en console, mais pour la robustesse)
-                break 
+        try:
+            pygame.mixer.init()
+            pygame.mixer.music.load(self.path)
+            pygame.mixer.music.play()
             
-            time.sleep(0.1) # Petite pause pour ne pas surcharger le CPU
+            # Attendre que la musique se termine OU que l'utilisateur tape 'q'
+            import select
+            import sys
             
-        print("Lecture terminée ou arrêtée.")
-        # Fin du programme, revient au $
+            while pygame.mixer.music.get_busy():
+                # Vérifier si 'q' a été tapé sans bloquer
+                if sys.stdin in select.select([sys.stdin], [], [], 0)[0]:
+                    line = sys.stdin.readline().strip()
+                    if line.lower() == 'q':
+                        self.stop(silent=True)  # ← MODE SILENCIEUX
+                        print("⏹ Lecture arrêtée par l'utilisateur.")
+                        break
+                time.sleep(0.1)
+        
+        except Exception as e:
+            print(f"Erreur lors de la lecture : {e}")
