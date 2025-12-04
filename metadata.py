@@ -207,21 +207,30 @@ class Metadata:
             self.lyrics = None
             return False
     
+    # --- Metadata.py (Modifié) ---
     def display_tags(self):
         """Affiche toutes les métadonnées dans la console (debug)"""
+        
+        # CHANGEMENT 1 : Utilisation de "Non trouvé" comme valeur par défaut
+        placeholder = '✗ Non trouvé' 
+        
         print("\n" + "="*50)
         print(f"📁 Fichier : {self.file_name}")
         print("="*50)
-        print(f"🎵 Titre   : {self.title or '(vide)'}")
-        print(f"👤 Artiste : {self.artist or '(vide)'}")
-        print(f"💿 Album   : {self.album or '(vide)'}")
-        print(f"📅 Année   : {self.year or '(vide)'}")
-        print(f"🎸 Genre   : {self.genre or '(vide)'}")
-        print(f"⏱️  Durée   : {self.duration or '(vide)'}")
-        print(f"🖼️  Cover   : {'✓ Présente' if self.cover else '✗ Absente'}")
+        
+        # Champs textuels (Titre, Artiste, Album, etc.)
+        print(f"🎵 Titre   : {self.title or placeholder}")
+        print(f"👤 Artiste : {self.artist or placeholder}")
+        print(f"💿 Album   : {self.album or placeholder}")
+        print(f"📅 Année   : {self.year or placeholder}")
+        print(f"🎸 Genre   : {self.genre or placeholder}")
+        print(f"⏱️  Durée   : {self.duration or placeholder}")
+        
+        # CHANGEMENT 2 : Ajuster l'affichage de la Cover
+        print(f"🖼️  Cover   : {'✓ Trouvée' if self.cover else '✗ Non trouvé'}")
         if self.cover:
             print(f"   Taille : {len(self.cover.getvalue())} bytes")
-        print(f"📝 Paroles : {'✓ Chargées' if self.lyrics else '✗ Non chargées'}")
+        print(f"📝 Paroles : {'✓ Chargées' if self.lyrics else '✗ Non trouvées'}")
         print("="*50 + "\n")
 
 
