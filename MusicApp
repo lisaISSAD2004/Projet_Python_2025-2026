@@ -4,15 +4,15 @@ from tkinter import filedialog, messagebox
 import os
 import requests 
 import io 
+import time 
 from PIL import Image 
 from typing import List
-# Assurez-vous que ces classes sont disponibles dans des fichiers séparés ou définies ci-dessus
-from Directory import Directory
-from Mp3File import Mp3File
-from FlacFile import FlacFile
-from Metadata import Metadata
+from Directory import Directory # Assurez-vous que cette classe est définie
+from Mp3File import Mp3File       # Assurez-vous que cette classe est définie
+from FlacFile import FlacFile     # Assurez-vous que cette classe est définie
+from Metadata import Metadata     # Assurez-vous que cette classe est définie
 import threading
-import xml.etree.ElementTree as ET # Ajout pour la fonction open_playlist
+import xml.etree.ElementTree as ET # Ajout pour open/save playlist
 
 # ============================================================
 # FONCTIONS DE TÉLÉCHARGEMENT DE COVER (HORS CLASSE)
@@ -111,11 +111,94 @@ def fetch_cover_from_musicbrainz(artist: str, album: str):
     except Exception as e:
         print(f"✗ Erreur MusicBrainz : {e}")
         return None
+# ============================================================
+# FONCTIONS API POUR L'ALBUM COMPLET ET LES PAROLES
+# ============================================================
 
-# Configuration globale du thème
-ctk.set_appearance_mode("Dark")  
-ctk.set_default_color_theme("dark-blue")  
+def fetch_album_details(artist: str, album: str):
+    """Recherche un album sur MusicBrainz et retourne ses détails complets (incluant les pistes)."""
+    if not artist or not album:
+        print("⚠ Artiste et album requis pour la recherche d'album complet")
+        return None
 
+    headers = {"User-Agent": "MusicManager/1.0"}
+    
+    # --- Requête 1: Trouver l'ID de l'album ---
+    search_url = "https://musicbrainz.org/ws/2/release/"
+    params_search = {
+        "query": f'artist:"{artist}" AND release:"{album}"',
+        "fmt": "json",
+        "limit": 1
+    }
+
+    try:
+        response = requests.get(search_url, params=params_search, headers=headers, timeout=10)
+        response.raise_for_status() 
+
+        data = response.json()
+        if not data.get("releases"):
+            print("✗ Aucun album trouvé sur MusicBrainz.")
+            return None
+        
+        release_id = data["releases"][0]["id"]
+        
+    except requests.exceptions.RequestException as e:
+        print(f"✗ Erreur lors de la recherche MusicBrainz: {e}")
+        return None
+    
+    # --- Délai de sécurité pour éviter le Rate Limiting (TRÈS IMPORTANT) ---
+    time.sleep(1.5) 
+
+    # --- Requête 2: Obtenir les détails complets ---
+    details_url = f"https://musicbrainz.org/ws/2/release/{release_id}"
+    params_details = {
+        "inc": "recordings+artists",
+        "fmt": "json"
+    }
+    
+    try:
+        response_details = requests.get(details_url, params=params_details, headers=headers, timeout=10)
+        response_details.raise_for_status()
+        details = response_details.json()
+        return details
+        
+    except requests.exceptions.RequestException as e:
+        print(f"✗ Erreur lors de la recherche MusicBrainz (Détails): {e}")
+        return None
+    except Exception as e:
+        print(f"✗ Erreur inattendue: {e}")
+        return None
+
+def fetch_lyrics(artist: str, title: str) -> str:
+    """Recherche les paroles via Lyrics.ovh (alternative rapide)."""
+    if not artist or not title:
+        return "Paroles introuvables. Artiste et titre manquants."
+    
+    # Remplacement des espaces par des '+' pour l'URL
+    artist = artist.replace(' ', '+')
+    title = title.replace(' ', '+')
+    
+    lyrics_url = f"https://api.lyrics.ovh/v1/{artist}/{title}"
+    
+    try:
+        response = requests.get(lyrics_url, timeout=5)
+        response.raise_for_status()
+        data = response.json()
+        
+        if 'lyrics' in data:
+            return data['lyrics']
+        else:
+            return "Paroles introuvables (API n'a pas renvoyé le contenu)."
+    except requests.exceptions.HTTPError as e:
+        if e.response.status_code == 404:
+            return "Paroles introuvables. Titre ou artiste non trouvé."
+        return f"Erreur de l'API Lyrics.ovh: {e}"
+    except Exception as e:
+        return f"Erreur lors de la recherche de paroles: {e}"
+
+# ============================================================
+# CLASSE PRINCIPALE
+# ============================================================
 class MusicApp(ctk.CTk):
     def __init__(self):
         super().__init__()
@@ -128,10 +211,11 @@ class MusicApp(ctk.CTk):
         self.current_directory: Directory = None
         self.selected_file: Metadata = None
         self.playlist: List[Metadata] = []
-        self.file_items = {}  # Dict pour stocker les références aux items
+        self.file_items = {} 
         self.is_playing = False
         self.current_audio = None
         self.cover_image_tk = None 
+        self._album_tracks_data = None # Ajout pour stocker les pistes de l'album API
         
         # Configuration de la grille
         self.grid_rowconfigure(1, weight=1) 
@@ -237,7 +321,7 @@ class MusicApp(ctk.CTk):
         # Rendre l'item cliquable pour afficher les métadonnées
         for widget in [item_frame, icon_label, text_frame, title_label, artist_label]:
             widget.bind("<Button-1>", lambda e, m=metadata: self.display_metadata(m))
-            widget.configure(cursor="hand2")  # Curseur main
+            widget.configure(cursor="hand2") 
         
         # Stocker la référence
         self.file_items[metadata.file_path] = item_frame
@@ -304,7 +388,7 @@ class MusicApp(ctk.CTk):
         self.btn_download_cover = ctk.CTkButton(self.meta_content, 
                                                text="Télécharger depuis Internet",
                                                fg_color="#1f6aa5",
-                                               command=self.download_and_save_cover) 
+                                               command=self.download_and_save_cover)
         self.btn_download_cover.pack(pady=5)
         
         # Section éditable
@@ -338,9 +422,9 @@ class MusicApp(ctk.CTk):
         self.year_entry = ctk.CTkEntry(fields_frame)
         self.year_entry.grid(row=3, column=1, sticky="ew", pady=5, padx=(10, 0))
         
-        # Durée 
+        # Durée (readonly)
         ctk.CTkLabel(fields_frame, text="Durée", anchor="w").grid(row=4, column=0, sticky="w", pady=5)
-        self.duration_entry = ctk.CTkEntry(fields_frame, state="readonly") # Rendu readonly
+        self.duration_entry = ctk.CTkEntry(fields_frame, state="readonly") 
         self.duration_entry.grid(row=4, column=1, sticky="ew", pady=5, padx=(10, 0))
         
         # Genre
@@ -365,7 +449,7 @@ class MusicApp(ctk.CTk):
         self.btn_play_file.pack(fill="x", pady=5)
 
     def create_api_tab(self):
-        """Onglet de recherche via API (Fusionné et corrigé)"""
+        """Onglet de recherche via API (fusion des deux versions)"""
         api_tab = self.tab_view.tab("Recherche API")
         
         # Section Recherche
@@ -375,7 +459,7 @@ class MusicApp(ctk.CTk):
         ctk.CTkLabel(grp_search, text="Recherche d'informations via API", 
                     anchor="w", font=ctk.CTkFont(weight="bold")).pack(fill="x", padx=10, pady=5)
         
-        # --- Composants de recherche (issus du code 2) ---
+        # Champ de recherche générique pour la recherche d'album (issu du code 2)
         input_frame = ctk.CTkFrame(grp_search, fg_color="transparent")
         input_frame.pack(fill="x", padx=10, pady=(0, 10))
         
@@ -384,23 +468,23 @@ class MusicApp(ctk.CTk):
         self.api_entry.pack(side="left", fill="x", expand=True, padx=(0, 10))
         
         self.api_btn = ctk.CTkButton(input_frame, text="🔍 Rechercher", width=100,
-                                     command=self.search_api) # Connecté à search_api
+                                    command=self.search_api) # Reste pour la recherche générique (non implémentée pour l'instant)
         self.api_btn.pack(side="right")
         
-        # --- Bouton explicite pour les paroles (issu du code 1) ---
+        # Bouton dédié pour les paroles (issu du code 1, plus explicite)
         self.btn_fetch_lyrics = ctk.CTkButton(
             grp_search, 
             text="🎵 Voir les paroles du morceau sélectionné", 
             height=30,
             font=ctk.CTkFont(size=13, weight="bold"),
-            command=self.search_api # Connecté à search_api
+            command=self.search_api # Utilise la fonction search_api pour lancer la recherche de paroles
         )
         self.btn_fetch_lyrics.pack(fill="x", padx=10, pady=10)
         
         # Section Résultats
         grp_result = ctk.CTkFrame(api_tab)
         grp_result.pack(fill="x", pady=10, padx=10, ipady=20)
-        ctk.CTkLabel(grp_result, text="Résultats de la recherche", 
+        ctk.CTkLabel(grp_result, text="Statut de la recherche", 
                     anchor="w", font=ctk.CTkFont(weight="bold")).pack(fill="x", padx=10, pady=5)
         self.api_result_label = ctk.CTkLabel(grp_result, text="Aucune recherche effectuée", 
                                             text_color="gray")
@@ -416,6 +500,7 @@ class MusicApp(ctk.CTk):
         self.lyrics_text.pack(fill="both", expand=True, padx=10, pady=10)
         self.lyrics_text.insert("1.0", "Les paroles apparaîtront ici...")
         self.lyrics_text.configure(state="disabled", text_color="gray")
+
 
     # ============================================================
     # PANNEAU DROIT - Playlist
@@ -447,17 +532,13 @@ class MusicApp(ctk.CTk):
         ctk.CTkLabel(self.playlist_empty, 
                     text="Playlist vide\nGlissez-déposez des fichiers ici", 
                     text_color="gray").pack()
-
-        # --- AJOUT DU DRAG & DROP SIMULÉ (issu du code 2) ---
-        # 1. Lier l'événement de clic à la zone vide.
-        self.playlist_empty.bind("<Button-1>", self.simulate_drag_and_drop_add) 
         
-        # 2. Lier les enfants de la zone vide également.
+        # Ajout de la simulation de glisser-déposer (issu du code 2)
+        self.playlist_empty.bind("<Button-1>", self.simulate_drag_and_drop_add) 
         for widget in self.playlist_empty.winfo_children():
             widget.bind("<Button-1>", self.simulate_drag_and_drop_add)
-            
-        # 3. Lier la frame scrollable (canvas interne) pour quand elle contient des éléments
         self.playlist_scroll._parent_canvas.bind("<Button-1>", self.simulate_drag_and_drop_add)
+
 
         # Boutons
         btn_frame = ctk.CTkFrame(frame, fg_color="transparent")
@@ -474,7 +555,7 @@ class MusicApp(ctk.CTk):
         self.btn_save_xspf.pack(fill="x", pady=5)
 
     # ============================================================
-    # FONCTIONS PRINCIPALES
+    # FONCTIONS PRINCIPALES (fusionnées et ajustées)
     # ============================================================
     
     def open_directory(self):
@@ -522,91 +603,99 @@ class MusicApp(ctk.CTk):
                                       text_color="gray")
             empty_label.pack(pady=20)
 
+        # Dans la classe MusicApp:
+
     def display_metadata(self, metadata: Metadata):
-        """Affiche les métadonnées d'un fichier sélectionné"""
         self.selected_file = metadata
-        
-        # Masquer le placeholder, afficher le contenu
         self.meta_placeholder.pack_forget()
         self.meta_content.pack(fill="both", expand=True)
-        
-        # Remplir les champs
         self.title_entry.delete(0, "end")
         self.title_entry.insert(0, metadata.title or "")
-        
         self.artist_entry.delete(0, "end")
         self.artist_entry.insert(0, metadata.artist or "")
-        
         self.album_entry.delete(0, "end")
         self.album_entry.insert(0, metadata.album or "")
-        
         self.year_entry.delete(0, "end")
         self.year_entry.insert(0, metadata.year or "")
-        
-        # Durée (readonly)
         self.duration_entry.configure(state="normal")
         self.duration_entry.delete(0, "end")
         self.duration_entry.insert(0, metadata.duration or "--:--")
         self.duration_entry.configure(state="readonly")
-        
         self.genre_entry.delete(0, "end")
         self.genre_entry.insert(0, metadata.genre or "")
-
-        # --- GESTION DE LA COVER ---
         if metadata.cover:
             try:
                 metadata.cover.seek(0)
+            # Ouvrir et redimensionner l'image pour l'affichage
                 img = Image.open(metadata.cover).resize((230, 230))
+            # Créer l'objet CTkImage pour l'afficher
                 self.cover_image_tk = ctk.CTkImage(light_image=img, dark_image=img, size=(230, 230))
                 self.cover_label.configure(image=self.cover_image_tk, text="")
             except Exception as e:
                 print(f"Erreur chargement cover: {e}")
                 self.cover_image_tk = None
-                self.cover_label.configure(image="", text="🖼\nCouverture d'album")
+            # Assurer que l'image interne du Label est réinitialisée à None
+                self.cover_label.configure(image=None, text="🖼\nCouverture d'album") 
         else:
             self.cover_image_tk = None
-            self.cover_label.configure(image="", text="🖼\nCouverture d'album")
-        
-        # Switch vers l'onglet métadonnées
-        self.tab_view.set("Métadonnées")
-
+        # Assurer que l'image interne du Label est réinitialisée à None
+            self.cover_label.configure(image=None, text="🖼\nCouverture d'album")
+            self.tab_view.set("Métadonnées")
     def save_metadata(self):
         if not self.selected_file:
             messagebox.showinfo("Info", "Aucun fichier sélectionné")
             return
+            
         new_tags = {
-        "title": self.title_entry.get(),
-        "artist": self.artist_entry.get(),
-        "album": self.album_entry.get(),
-        "year": self.year_entry.get(),
-        "genre": self.genre_entry.get()
-    }
+            "title": self.title_entry.get(),
+            "artist": self.artist_entry.get(),
+            "album": self.album_entry.get(),
+            "year": self.year_entry.get(),
+            "genre": self.genre_entry.get()
+        }
     
         try:
+            # 1. SAUVEGARDE DES TAGS TEXTUELS (Doit réussir d'abord)
             if self.selected_file.file_path.lower().endswith(".mp3"):
                 audio = Mp3File(self.selected_file.file_path)
             else:
                 audio = FlacFile(self.selected_file.file_path)
+                
             audio.save_tags(**new_tags) 
+            
+            # 2. SAUVEGARDE DE LA COVER (Séparée et plus sûre)
             if self.selected_file.cover:
-                self.selected_file.cover.seek(0)
-                cover_data = self.selected_file.cover.read()
-                if cover_data:
-                    album_dir = os.path.dirname(self.selected_file.file_path)
-                    cover_path = os.path.join(album_dir, "cover.jpg")
-                    with open(cover_path, "wb") as f:
-                        f.write(cover_data)
+                try:
+                    # Lecture des données binaires de la cover
+                    self.selected_file.cover.seek(0)
+                    cover_data = self.selected_file.cover.read()
+                    
+                    if cover_data:
+                        # Enregistrement dans le dossier de l'album (cover.jpg)
+                        album_dir = os.path.dirname(self.selected_file.file_path)
+                        cover_path = os.path.join(album_dir, "cover.jpg")
+                        with open(cover_path, "wb") as f:
+                            f.write(cover_data)
+
+                        # Si la cover a été téléchargée via l'API, vous devriez aussi la sauver dans le tag du fichier audio
+                        # (Si ce n'est pas déjà fait par la méthode _save_validated_cover_in_thread)
+                        # audio.save_cover(cover_data) # <--- Si cette fonction existe
+
+                except Exception as cover_e:
+                    print(f"Avertissement: Erreur lors de la sauvegarde de la cover dans le dossier: {cover_e}")
+                    # Ne pas remonter cette erreur pour ne pas bloquer la sauvegarde des tags textuels
+            
+            # Relecture et affichage
             self.selected_file.extract_tags()
             self.display_metadata(self.selected_file) 
         
             messagebox.showinfo("Succès", "Métadonnées et/ou Cover sauvegardées avec succès")
         
-   
         except Exception as e:
             err = str(e)
+            # Afficher l'erreur réelle de Mutagen/Fichier, pas l'erreur "pyimage3"
             messagebox.showerror("Erreur d'écriture", 
                             f"Impossible de sauvegarder. Vérifiez les permissions et le chemin d'accès. Erreur: {err}")
-
     # ============================================================
     # FONCTIONS DE GESTION DE COVER 
     # ============================================================
@@ -623,7 +712,7 @@ class MusicApp(ctk.CTk):
             messagebox.showwarning("Attention", "Veuillez renseigner **l'artiste** et **l'album** pour la recherche.")
             return
 
-        # Si une cover existe déjà, on ne fait rien
+        # Si une cover existe déjà
         if self.selected_file.cover:
              messagebox.showinfo("Info", "Une cover existe déjà dans le fichier")
              return
@@ -659,14 +748,13 @@ class MusicApp(ctk.CTk):
             popup = ctk.CTkToplevel(self)
             popup.title("Valider la couverture")
             popup.geometry("300x350")
-            popup.attributes('-topmost', True) # Rendre la popup toujours visible
+            popup.attributes('-topmost', True) 
 
             ctk.CTkLabel(popup, text="Confirmez-vous cette cover ?").pack(pady=10)
             img_label = ctk.CTkLabel(popup, image=self.cover_image_tk, text="")
             img_label.pack(pady=10)
 
             def accept():
-                # Lancer la sauvegarde dans un autre thread (car cela implique une écriture sur disque)
                 threading.Thread(target=lambda: self._save_validated_cover_in_thread(cover_data), 
                                  daemon=True).start()
                 popup.destroy()
@@ -674,7 +762,7 @@ class MusicApp(ctk.CTk):
 
             def refuse():
                 popup.destroy()
-                self.display_metadata(self.selected_file) # Réaffiche l'état initial (sans cover)
+                self.display_metadata(self.selected_file) 
                 messagebox.showinfo("Info", "L'opération a été annulée.")
 
             ctk.CTkButton(popup, text="✓ Oui", fg_color="#4CAF50", command=accept).pack(fill="x", padx=20, pady=5)
@@ -692,7 +780,9 @@ class MusicApp(ctk.CTk):
                 audio_file = Mp3File(self.selected_file.file_path)
             else:
                 audio_file = FlacFile(self.selected_file.file_path)
-            audio_file.save_cover(cover_data)
+            # NOTE: Assurez-vous que Mp3File/FlacFile ont la méthode save_cover(cover_data)
+            audio_file.save_cover(cover_data) 
+            
             # 2. Sauvegarde dans le dossier de l'album (cover.jpg)
             album_dir = os.path.dirname(self.selected_file.file_path)
             cover_path = os.path.join(album_dir, "cover.jpg")
@@ -712,6 +802,7 @@ class MusicApp(ctk.CTk):
 
 
     def play_selected_file(self):
+        """Lecture/Arrêt d'un seul fichier"""
         if not self.selected_file:
             messagebox.showinfo("Info", "Aucun fichier sélectionné")
             return
@@ -746,6 +837,7 @@ class MusicApp(ctk.CTk):
             self.is_playing = False
     
     def stop_playback(self):
+        """Arrêter la lecture en cours"""
         if self.current_audio:
             try:
                 self.current_audio.stop()
@@ -755,11 +847,13 @@ class MusicApp(ctk.CTk):
         self.btn_play_file.configure(text="▷ Lire le Morceau", fg_color="#2196F3")
 
     def add_to_playlist(self, metadata: Metadata):
+        """Ajouter un morceau à la playlist"""
         if metadata not in self.playlist:
             self.playlist.append(metadata)
             self.update_playlist_display()
 
     def update_playlist_display(self):
+        """Mettre à jour l'affichage de la playlist"""
         if self.playlist:
             self.playlist_empty.grid_forget()
             self.playlist_scroll.grid(row=1, column=0, sticky="nsew", padx=10)
@@ -776,6 +870,7 @@ class MusicApp(ctk.CTk):
         self.playlist_count_label.configure(text=f"{len(self.playlist)} morceaux")
 
     def create_playlist_item(self, metadata: Metadata, index: int):
+        """Créer un item visuel dans la playlist"""
         item = ctk.CTkFrame(self.playlist_scroll, fg_color=("#3b3b3b", "#2b2b2b"))
         item.pack(fill="x", pady=2)
         
@@ -793,11 +888,13 @@ class MusicApp(ctk.CTk):
         btn_remove.pack(side="right", padx=5)
 
     def remove_from_playlist(self, metadata: Metadata):
+        """Retirer un morceau de la playlist"""
         if metadata in self.playlist:
             self.playlist.remove(metadata)
             self.update_playlist_display()
 
     def play_playlist(self):
+        """Jouer tous les morceaux de la playlist"""
         if not self.playlist:
             messagebox.showinfo("Info", "La playlist est vide")
             return
@@ -829,6 +926,7 @@ class MusicApp(ctk.CTk):
         threading.Thread(target=play_all, daemon=True).start()
 
     def open_playlist(self):
+        """Ouvrir une playlist XSPF"""
         filename = filedialog.askopenfilename(
             title="Ouvrir une playlist",
             filetypes=[("XSPF Playlist", ".xspf"), ("Tous les fichiers", ".*")]
@@ -871,6 +969,7 @@ class MusicApp(ctk.CTk):
             messagebox.showerror("Erreur", f"Impossible d'ouvrir la playlist: {e}")
 
     def save_playlist_dialog(self):
+        """Sauvegarder la playlist XSPF"""
         if not self.playlist:
             messagebox.showwarning("Attention", "La playlist est vide")
             return
@@ -884,81 +983,25 @@ class MusicApp(ctk.CTk):
             return
         
         try:
-            # Assumons que la classe Directory a été définie pour inclure generate_xspf_playlist
             temp_dir = Directory(".")
             temp_dir.files = self.playlist
-            temp_dir.generate_xspf_playlist(filename)
+            # Supposons que generate_xspf_playlist est implémenté dans Directory
+            temp_dir.generate_xspf_playlist(filename) 
             
             messagebox.showinfo("Succès", f"Playlist sauvegardée: {filename}")
         except Exception as e:
             messagebox.showerror("Erreur", f"Impossible de sauvegarder: {e}")
 
-    def search_api(self):
-        """Recherche les paroles via l'API pour le morceau sélectionné (lancé en thread)."""
-        if not self.selected_file:
-            messagebox.showinfo("Info", "Veuillez sélectionner un fichier d'abord pour voir les paroles.")
-            return
-        
-        # Mise à jour de l'UI pour indiquer l'attente
-        self.api_result_label.configure(text="Recherche en cours... (Ne pas bloquer l'UI)", text_color="#2196F3")
-        
-        # Désactiver les deux boutons de recherche (logique issue du code 1)
-        self.api_btn.configure(state="disabled")
-        self.btn_fetch_lyrics.configure(state="disabled")
-        
-        def fetch():
-            # Nécessite l'implémentation de la méthode fetch_lyrics dans la classe Metadata
-            self.selected_file.fetch_lyrics() 
-            self.after(0, self.display_lyrics)
-        
-        threading.Thread(target=fetch, daemon=True).start()
-
-    def display_lyrics(self):
-        """Affiche les paroles récupérées et gère le statut de succès/échec (logique issue du code 1)."""
-        
-        # Réactiver les boutons
-        self.api_btn.configure(state="normal")
-        self.btn_fetch_lyrics.configure(state="normal")
-        
-        # Logique d'affichage
-        if self.selected_file and self.selected_file.lyrics and "Paroles introuvables" not in self.selected_file.lyrics and "Erreur" not in self.selected_file.lyrics:
-            # === CAS SUCCÈS ===
-            self.lyrics_text.configure(state="normal", text_color="white")
-            self.lyrics_text.delete("1.0", "end")
-            self.lyrics_text.insert("1.0", self.selected_file.lyrics)
-            self.lyrics_text.configure(state="disabled")
-            self.api_result_label.configure(text="✓ Paroles trouvées avec succès!", text_color="#00C853")
-        else:
-            # === CAS ÉCHEC (Affiche en ROUGE) ===
-            
-            # Déterminer le message d'erreur pour la zone de texte
-            error_message = self.selected_file.lyrics if self.selected_file.lyrics and "Erreur" in self.selected_file.lyrics else "Paroles introuvables. L'API n'a pas trouvé le titre."
-
-            # Afficher le statut en ROUGE
-            self.api_result_label.configure(text="✗ Paroles introuvables.", text_color="red")
-            
-            # Afficher le détail de l'erreur dans la zone de texte
-            self.lyrics_text.configure(state="normal")
-            self.lyrics_text.delete("1.0", "end")
-            self.lyrics_text.insert("1.0", error_message)
-            self.lyrics_text.configure(state="disabled", text_color="gray")
-
-    # ============================================================
-    # FONCTION DRAG & DROP SIMULÉE (issu du code 2)
-    # ============================================================
-
     def simulate_drag_and_drop_add(self, event=None):
         """
-        Simule l'ajout d'un fichier à la playlist via l'action de 'Drop' 
-        en ouvrant un dialogue de sélection.
+        Simule l'ajout d'un fichier à la playlist via l'action de 'Drop' (via dialogue).
+        (Fonctionnalité issue du code 2)
         """
-        # Ignorer si l'utilisateur clique sur un item de playlist déjà existant
-        if self.playlist_scroll.winfo_exists() and event.widget in self.playlist_scroll.winfo_children() and event.widget != self.playlist_empty:
-             return
+        if event and event.widget in self.playlist_scroll.winfo_children() and event.widget != self.playlist_empty:
+            return
 
-        # 1. Obtenir les chemins de fichiers (simulé par un dialogue)
         file_paths = filedialog.askopenfilenames(
-            title="Ajouter des fichiers à la playlist (simulé D&D)",
+            title="Ajouter des fichiers à la playlist",
             filetypes=[
                 ("Fichiers audio supportés", "*.mp3 *.flac"), 
                 ("MP3 File", "*.mp3"), 
@@ -971,10 +1014,8 @@ class MusicApp(ctk.CTk):
             
         added_count = 0
         
-        # 2. Traiter chaque fichier
         for file_path in file_paths:
             if os.path.exists(file_path):
-                # Créer l'objet Metadata
                 try:
                     metadata = Metadata(file_path)
                     self.add_to_playlist(metadata)
@@ -986,6 +1027,259 @@ class MusicApp(ctk.CTk):
             messagebox.showinfo("Playlist", f"{added_count} fichier(s) ajouté(s) à la playlist.")
         else:
             messagebox.showwarning("Playlist", "Aucun fichier valide n'a été ajouté.")
+
+    def search_api(self):
+        """Déclenche la recherche complète d'album ou la recherche de paroles."""
+        
+        # Si le bouton cliqué est le bouton de paroles
+        if self.focus_get() == self.btn_fetch_lyrics:
+            # Revenir à la fonction d'origine pour les paroles (qui appelle fetch_lyrics dans Metadata)
+            if not self.selected_file:
+                messagebox.showinfo("Info", "Veuillez sélectionner un fichier d'abord pour voir les paroles.")
+                return
+            
+            self.api_result_label.configure(text="Recherche des paroles en cours...", text_color="#2196F3")
+            self.api_btn.configure(state="disabled")
+            self.btn_fetch_lyrics.configure(state="disabled")
+            
+            def fetch_lyric_only():
+                # Assurez-vous que cette fonction utilise le nouveau fetch_lyrics ou votre méthode Metadata interne
+                # Nous supposons ici que Metadata.fetch_lyrics() existe et utilise le fetch_lyrics externe ou un autre service
+                if hasattr(self.selected_file, 'fetch_lyrics'):
+                    self.selected_file.fetch_lyrics()
+                else:
+                    # Utilise la fonction globale fetch_lyrics
+                    self.selected_file.lyrics = fetch_lyrics(self.selected_file.artist, self.selected_file.title)
+                
+                self.after(0, self.display_lyrics)
+            
+            threading.Thread(target=fetch_lyric_only, daemon=True).start()
+            
+        # Si le bouton cliqué est le bouton de recherche générique (Album)
+        else:
+            artist = self.artist_entry.get().strip()
+            album = self.album_entry.get().strip()
+            
+            if not artist or not album:
+                messagebox.showwarning("Attention", "Veuillez renseigner l'artiste et l'album pour la recherche d'album complète.")
+                return
+            
+            self.api_result_label.configure(text="Recherche des détails de l'album en cours...", text_color="#2196F3")
+            self.api_btn.configure(state="disabled")
+            self.btn_fetch_lyrics.configure(state="disabled")
+            self.update()
+            
+            def fetch_full_album():
+                details = fetch_album_details(artist, album)
+                self.after(0, lambda: self.apply_album_details(details))
+
+            threading.Thread(target=fetch_full_album, daemon=True).start()
+
+    def display_lyrics(self):
+        """Affiche les paroles récupérées et met le statut en rouge en cas d'échec. (Logique du code 1)"""
+        
+        # Réactiver les boutons
+        self.api_btn.configure(state="normal")
+        if hasattr(self, 'btn_fetch_lyrics'):
+            self.btn_fetch_lyrics.configure(state="normal")
+        
+        lyrics_content = self.selected_file.lyrics if self.selected_file and hasattr(self.selected_file, 'lyrics') else None
+        
+        if lyrics_content and "Paroles introuvables" not in lyrics_content and "Erreur" not in lyrics_content:
+            # === CAS SUCCÈS ===
+            self.lyrics_text.configure(state="normal", text_color="white")
+            self.lyrics_text.delete("1.0", "end")
+            self.lyrics_text.insert("1.0", lyrics_content)
+            self.lyrics_text.configure(state="disabled")
+            self.api_result_label.configure(text="✓ Paroles trouvées avec succès!", text_color="#00C853")
+        else:
+            # === CAS ÉCHEC (Affiche en ROUGE) ===
+            
+            # Déterminer le message d'erreur
+            error_message = lyrics_content if lyrics_content and "Erreur" in lyrics_content else "Paroles introuvables. L'API n'a pas trouvé le titre."
+
+            # Afficher le statut en ROUGE
+            self.api_result_label.configure(text="✗ Paroles introuvables.", text_color="red")
+            
+            # Afficher le détail de l'erreur dans la zone de texte
+            self.lyrics_text.configure(state="normal")
+            self.lyrics_text.delete("1.0", "end")
+            self.lyrics_text.insert("1.0", error_message)
+            self.lyrics_text.configure(state="disabled", text_color="gray")
+
+    def apply_album_details(self, details):
+        """Affiche les détails de l'album récupérés et permet l'application aux fichiers existants."""
+        
+        # Réactive les boutons, car l'API de détails a terminé sa recherche
+        self.api_btn.configure(state="normal")
+        self.btn_fetch_lyrics.configure(state="normal")
+        self.api_result_label.configure(text="Recherche complète réussie!", text_color="#00C853")
+
+        if not details or not details.get('media'):
+            self.api_result_label.configure(text="Détails d'album non valides ou incomplets.", text_color="red")
+            messagebox.showwarning("Album", "Détails d'album non valides ou incomplets.")
+            return
+
+        # Vider la zone de paroles et la transformer en zone d'affichage des pistes
+        self.lyrics_text.configure(state="normal", text_color="white", wrap="none")
+        self.lyrics_text.delete("1.0", "end")
+        
+        album_artist = details['artist-credit'][0]['name']
+        album_title = details['title']
+        
+        self.lyrics_text.insert("1.0", f"--- Détails de l'album: {album_title} par {album_artist} ---\n\n")
+
+        # Extraction des pistes
+        tracks_data = []
+        track_number = 1
+        for media in details['media']:
+            # Pour les albums multi-disques, on peut ajouter une séparation
+            if len(details['media']) > 1:
+                 self.lyrics_text.insert("end", f"--- Disque {media.get('position', 1)} ---\n")
+            
+            for track in media.get('tracks', []):
+                title = track['title']
+                # Utiliser l'artiste de la piste s'il est spécifié, sinon l'artiste de l'album
+                artist = track['artist-credit'][0]['name'] if track.get('artist-credit') else album_artist
+                
+                # Stocker les données pour le téléchargement des paroles futures
+                tracks_data.append({'title': title, 'artist': artist}) 
+                
+                self.lyrics_text.insert("end", f"{track_number}. {title} ({artist})\n")
+                track_number += 1
+                
+        self.lyrics_text.insert("end", "\n\n--- Actions disponibles ---\n")
+        self.lyrics_text.insert("end", "1. Sélectionnez un titre et cliquez sur 'Voir les paroles' pour ce morceau.\n")
+        self.lyrics_text.insert("end", "2. Cliquez sur le nouveau bouton pour télécharger toutes les paroles!\n")
+        self.lyrics_text.configure(state="disabled")
+
+        # Stocker les données des pistes dans la variable d'instance
+        self._album_tracks_data = tracks_data
+        
+        # AJOUT du BOUTON DÉDIÉ AUX PAROLES D'ALBUM
+        grp_result = self.api_result_label.master 
+        
+        if not hasattr(self, '_btn_fetch_album_lyrics'):
+             self._btn_fetch_album_lyrics = ctk.CTkButton(
+                grp_result, 
+                text="⬇️ Télécharger toutes les paroles de l'album", 
+                height=30,
+                font=ctk.CTkFont(size=13, weight="bold"),
+                fg_color="#00C853", hover_color="#009624",
+                command=self.fetch_all_album_lyrics
+            )
+             # Utiliser 'pack' pour s'assurer que ce bouton apparaît SOUS le label de statut
+             self._btn_fetch_album_lyrics.pack(fill="x", padx=10, pady=(5, 10))
+        else:
+            # S'il existe déjà, assurez-vous qu'il soit affiché et réactivé
+            self._btn_fetch_album_lyrics.configure(state="normal")
+            self._btn_fetch_album_lyrics.pack(fill="x", padx=10, pady=(5, 10))
+
+
+    def fetch_all_album_lyrics(self):
+        """Télécharge les paroles pour toutes les pistes de l'album récupéré."""
+        
+        # 1. Vérification des prérequis
+        if not hasattr(self, '_album_tracks_data') or not self._album_tracks_data:
+            messagebox.showwarning("Info", "Veuillez rechercher les détails de l'album d'abord (Onglet 'Recherche API').")
+            return
+            
+        if not self.current_directory:
+            messagebox.showwarning("Info", "Veuillez ouvrir un dossier pour appliquer les changements aux fichiers locaux.")
+            return
+
+        # 2. Désactivation des contrôles et affichage du statut
+        self.api_btn.configure(state="disabled")
+        self.btn_fetch_lyrics.configure(state="disabled")
+        
+        # Assurez-vous d'avoir ce bouton créé et de le rendre visible dans apply_album_details
+        if hasattr(self, '_btn_fetch_album_lyrics'):
+             self._btn_fetch_album_lyrics.configure(state="disabled", text="Téléchargement en cours...")
+        
+        self.api_result_label.configure(text="Initialisation du téléchargement des paroles en masse...", text_color="#2196F3")
+        self.update()
+
+        def process_in_thread():
+            found_count = 0
+            total_tracks = len(self._album_tracks_data)
+            
+            for idx, track_data in enumerate(self._album_tracks_data):
+                artist = track_data['artist']
+                title = track_data['title']
+                
+                # Mise à jour du statut dans l'interface utilisateur
+                self.after(0, lambda a=artist, t=title, i=idx: 
+                           self.api_result_label.configure(
+                               text=f"Téléchargement des paroles en masse ({i+1}/{total_tracks}): {a} - {t}..."
+                           ))
+
+                # Appel de la fonction de recherche de paroles
+                lyrics = fetch_lyrics(artist, title)
+                time.sleep(1.2) # DÉLAI DE SÉCURITÉ pour éviter d'être bloqué par l'API Lyrics.ovh
+
+                if "Paroles introuvables" not in lyrics and "Erreur" not in lyrics:
+                    found_count += 1
+                    
+                    # --- Recherche et Application aux Fichiers Locaux (Basée sur Titre/Artiste) ---
+                    for local_file in self.current_directory.files:
+                        # Comparaison en minuscules et sans espaces de début/fin
+                        local_title = (local_file.title or "").strip().lower()
+                        local_artist = (local_file.artist or "").strip().lower()
+                        
+                        if (local_title == title.strip().lower() and 
+                            local_artist == artist.strip().lower()):
+                            
+                            try:
+                                # Sauvegarde des paroles dans l'objet Metadata
+                                local_file.lyrics = lyrics
+                                
+                                # Initialisation et sauvegarde dans le fichier physique (nécessite save_lyrics)
+                                if local_file.file_path.lower().endswith(".mp3"):
+                                    audio = Mp3File(local_file.file_path)
+                                else:
+                                    audio = FlacFile(local_file.file_path)
+                                
+                                # NOTE: Assurez-vous que Mp3File/FlacFile ont la méthode save_lyrics(lyrics_text)
+                                audio.save_lyrics(lyrics) 
+                                
+                                self.after(0, lambda t=title: self.footer_label.configure(
+                                    text=f"Paroles sauvegardées pour : {t}"
+                                ))
+                                break # Piste locale trouvée et mise à jour
+                            except Exception as e:
+                                print(f"Erreur sauvegarde paroles pour {title}: {e}")
+
+            # 3. Mise à jour finale de l'interface
+            self.after(0, lambda: self._handle_album_lyrics_completion(found_count, total_tracks))
+
+        threading.Thread(target=process_in_thread, daemon=True).start()
+
+    def _handle_album_lyrics_completion(self, found_count, total_tracks):
+        """Gère l'affichage après le processus de téléchargement d'album."""
+        self.api_btn.configure(state="normal")
+        self.btn_fetch_lyrics.configure(state="normal")
+        
+        if hasattr(self, '_btn_fetch_album_lyrics'):
+            self._btn_fetch_album_lyrics.configure(state="normal", text="⬇️ Télécharger toutes les paroles de l'album")
+        
+        if self.selected_file:
+            # Re-afficher les métadonnées pour charger les nouvelles paroles
+            # Note: Si le fichier sélectionné était mis à jour, il faut relire ses tags ici.
+            # self.selected_file.extract_tags() # Relecture des tags du fichier sélectionné
+            # self.display_metadata(self.selected_file) 
+            pass # On laisse l'utilisateur resélectionner pour charger les nouvelles paroles.
+        
+        if found_count > 0:
+            self.api_result_label.configure(
+                text=f"✓ {found_count} paroles téléchargées et sauvegardées sur {total_tracks}!", 
+                text_color="#00C853"
+            )
+        else:
+            self.api_result_label.configure(
+                text=f"✗ Aucune parole trouvée ou sauvegardée pour cet album ({total_tracks} pistes)", 
+                text_color="red"
+            )
+        self.footer_label.configure(text=f"Prêt | Opération d'album terminée.")
 
 if __name__ == "__main__":
     app = MusicApp()
