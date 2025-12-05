@@ -209,13 +209,6 @@ doxygen Doxyfile
 - ✅ **Code source complet** + Documentation - 12 décembre 22h00
 - ✅ **Soutenance** (15 min : 8 min présentation + 7 min questions) - 19 décembre
 
-### Notation
-- Diagramme de Gantt : 1 point
-- Points d'avancement : 3 points (2 + 1)
-- Vidéo de démonstration : 5 points
-- Soutenance : 4 points
-- Livrables finaux : 7 points
-
 ## 🐛 Résolution de Problèmes
 
 ### Erreur : "Module customtkinter not found"
