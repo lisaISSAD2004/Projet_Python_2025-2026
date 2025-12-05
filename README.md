@@ -1,137 +1,254 @@
-# 🏨 Système de Gestion d'Hôtel
+# 🎵 Gestionnaire Musical MP3/FLAC
 
 ## 📋 Description du Projet
 
-Système complet de gestion hôtelière intégrant une base de données relationnelle PostgreSQL et une architecture réseau client-serveur. Ce projet universitaire (L3 Informatique - CY Cergy Paris Université) vise à automatiser les opérations clés d'un établissement hôtelier : réservations, facturation, gestion des chambres et maintenance.
+Application complète de gestion de fichiers musicaux MP3 et FLAC avec extraction de métadonnées, lecture audio, gestion de playlists XSPF et recherche d'informations via API. Ce projet universitaire (L3 Informatique - CY Cergy Paris Université) permet d'explorer des arborescences de fichiers, d'afficher et modifier les tags ID3/Vorbis, de télécharger des covers d'albums et de récupérer les paroles via des services en ligne.
 
+## 👥 Équipe - Groupe 
 
-## 👥 Équipe - Groupe D4
-
-- 👩‍💻 *ACHAB Ouardia*  
+- 👩‍💻 **ACHAB Ouardia**  
   📧 Email : ouardia.achab@etu.cyu.fr
     
-- 👩‍💻 *ISSAD Lisa*  
+- 👩‍💻 **ISSAD Lisa**  
   📧 Email : lisa.issad@etu.cyu.fr
     
-- 👩‍💻 *ELYAMANY Nouha  
-  📧 Email : nouha.elyamany@etu.cyu.fr
+- 👩‍💻 **HACHANI Omar**  
+  📧 Email : omar.hachani@etu.cyu.fr
 
-
-**Responsable de formation :** Marc Lemaire  
-**Période :** Septembre 2025 - Décembre 2025
-
+**Responsable de formation :**Jean-luc BOURDON
+**Période :** octobre 2025 - Décembre 2025
 
 ## 🎯 Objectifs
 
-- ✅ Concevoir une base de données relationnelle optimisée pour la gestion hôtelière
-- ✅ Développer une architecture réseau client-serveur robuste
-- ✅ Créer une solution scalable garantissant une expérience fluide
-- ✅ Implémenter un protocole de communication basé sur TCP/JSON
-
+- ✅ Extraire et afficher les métadonnées des fichiers MP3 (ID3) et FLAC (Vorbis Comment)
+- ✅ Explorer récursivement des dossiers pour lister tous les fichiers audio
+- ✅ Créer et sauvegarder des playlists au format XSPF
+- ✅ Modifier et sauvegarder les tags audio (titre, artiste, album, année, genre)
+- ✅ Lire des fichiers audio individuels ou des playlists complètes
+- ✅ Télécharger des covers d'albums depuis iTunes et MusicBrainz
+- ✅ Récupérer les paroles via API (Lyrics.ovh)
+- ✅ Rechercher des informations complètes d'albums via MusicBrainz API
 
 ## ✨ Fonctionnalités Principales
 
-- **Gestion des Réservations** : Création, modification et annulation de réservations avec vérification automatique de disponibilité des chambres
-- **Gestion des Chambres** : Consultation et mise à jour en temps réel du statut des chambres via scan de code QR
-- **Facturation et Paiements** : Génération automatique des factures avec calcul de TVA et support de multiples modes de paiement
-- **Gestion de la Maintenance** : Signalement et attribution automatique des interventions techniques avec gestion des priorités
-- **Services Hôteliers** : Enregistrement et facturation automatique des services additionnels consommés par les clients
-- **Interface Personnel** : Application tablette permettant la gestion simplifiée des check-in, check-out et consultation instantanée des informations
+### Mode Console (CLI)
+- **Exploration de dossiers** : Analyse récursive d'une arborescence avec filtre MP3/FLAC
+- **Affichage des métadonnées** : Extraction et affichage complet des tags ID3/Vorbis
+- **Lecture audio** : Lecture de fichiers individuels ou de playlists XSPF
+- **Modification des tags** : Mise à jour des métadonnées via ligne de commande
+- **Génération de playlists** : Création automatique de fichiers XSPF
 
+### Mode Graphique (GUI)
+- **Explorateur de fichiers** : Liste interactive avec recherche/filtrage en temps réel
+- **Éditeur de métadonnées** : Modification visuelle des tags avec sauvegarde instantanée
+- **Gestion de covers** : Affichage, téléchargement et sauvegarde des images d'albums
+- **Playlist interactive** : Ajout/suppression par drag & drop, lecture séquentielle
+- **Recherche API** : Récupération automatique des paroles et informations d'albums
+- **Lecture audio intégrée** : Player embarqué avec contrôles stop/play
 
 ## 🏗️ Architecture Technique
 
-### 1. **Base de Données PostgreSQL**
-- 10 tables principales
-- 1 table de liaison (many-to-many)
-- Gestion complète des contraintes d'intégrité
+### 1. **Bibliothèques Python Utilisées**
+```
+- customtkinter : Interface graphique moderne
+- tkinter : Widgets GUI de base
+- Pillow (PIL) : Manipulation d'images (covers)
+- mutagen : Lecture/écriture des tags MP3/FLAC
+- pygame : Lecture audio
+- requests : Appels API (iTunes, MusicBrainz, Lyrics.ovh)
+- xml.etree.ElementTree : Parsing/génération XSPF
+```
 
-### 2. **Interface Web PHP**
-- Réservations en ligne pour les clients
-- Interface de gestion pour les employés
-- Authentification sécurisée pour les deux types d'utilisateurs
-- Consultation des disponibilités et gestion des opérations hôtelières
+### 2. **Structure du Projet**
+```
+ACHAB_ISSAD_HACHANI/
+│
+├── src/
+│   ├── library/
+│   │   ├── Directory.py      # Exploration de dossiers
+│   │   ├── Mp3File.py        # Gestion des fichiers MP3
+│   │   ├── FlacFile.py       # Gestion des fichiers FLAC
+│   │   └── Metadata.py       # Extraction de métadonnées
+│   │
+│   ├── cli/
+│   │   └── Cli.py            # Interface ligne de commande
+│   │
+│   └── gui/
+│       └── Gui.py            # Interface graphique
+│
+├── doc/
+│   ├── diaporama/            # Présentation de soutenance
+│   ├── documentation/        # Documentation technique (Doxygen/Pydoc)
+│   └── rapport/              # Rapport de projet (ODT + PDF)
+│
+└── README.md
+```
 
-### 3. **Serveur Applicatif Java**
-- Communication TCP avec clients distants
-- Connexion JDBC vers PostgreSQL
-- Gestion des transactions fiables
-- Port configurable : 8080 par défaut ou port personnalisé en paramètre
-
-### 4. **Client Réseau Python**
-- Application tablette pour le personnel
-- Scan de codes QR des chambres
-- Mise à jour temps réel des statuts
-- Démontre l'interopérabilité du protocole
-
+### 3. **APIs Externes Intégrées**
+- **iTunes Search API** : Recherche de covers d'albums haute résolution
+- **MusicBrainz API** : Métadonnées complètes d'albums et d'artistes
+- **Cover Art Archive** : Récupération de covers alternatives
+- **Lyrics.ovh API** : Téléchargement automatique des paroles
 
 ## 🚀 Installation et Configuration
 
-### 1. **Logiciels requis**
-- PostgreSQL 12+
-- Java JDK 11+
-- Python 3.8+
-- PHP 7.4+
-
-### 2. **Bibliothèques Java**
-- json-20240303.jar
-- postgresql-42.7.1.jar
-
-### 3. **Bibliothèques Python**
-- socket (standard)
-- json (standard)
-
-
-### 4. **Connexion au serveur PostgreSQL distant**
-```
-psql -h postgresql-achabouardia.alwaysdata.net -p 5432 -U achabouardia -d achabouardia_hotel_db
-```
-
-### 5. **Lancement du Serveur Java**
+### 1. **Prérequis**
 ```bash
-# Compiler le serveur
-javac -cp ../:/home/etudiant/Téléchargements/json-20240303.jar:/home/etudiant/Téléchargements/postgresql-42.7.7.jar server/*.java
-# Exécuter avec port par défaut (8080)
-java -cp .:/home/etudiant/Téléchargements/json-20240303.jar:/home/etudiant/Téléchargements/postgresql-42.7.7.jar server.ServerTCP
+# Python 3.8+ requis
+python3 --version
 
-# Exécuter avec port personnalisé
-java -cp .:/home/etudiant/Téléchargements/json-20240303.jar:/home/etudiant/Téléchargements/postgresql-42.7.7.jar server.ServerTCP 9000
+# Installation des dépendances
+pip install customtkinter pillow mutagen pygame requests
 ```
 
-**Sortie attendue :**
-```
-Serveur en attente sur le port 8080...
-```
-
-
-### 6. **Lancement du Client Python**
+### 2. **Lancement du Mode Console (CLI)**
 ```bash
-# Exécuter le client avec port par défaut (8080)
-python3 /home/etudiant/Téléchargements/client/HotelClient.py localhost 
-# Exécuter avec port personnalisé
-python3 /home/etudiant/Téléchargements/client/HotelClient.py localhost 9000
+# Afficher l'aide
+python3 src/cli/Cli.py -h
 
+# Explorer un dossier et lister les fichiers
+python3 src/cli/Cli.py -d /chemin/vers/musique/
+
+# Afficher les métadonnées d'un fichier
+python3 src/cli/Cli.py -f chanson.mp3
+
+# Générer une playlist XSPF
+python3 src/cli/Cli.py -d ./music/ -o ma_playlist.xspf
+
+# Lire un fichier audio
+python3 src/cli/Cli.py -p chanson.mp3
+
+# Lire une playlist XSPF
+python3 src/cli/Cli.py -p ma_playlist.xspf
+
+# Modifier les tags d'un fichier
+python3 src/cli/Cli.py -u file=chanson.mp3 title="Nouveau Titre" artist="Artiste" album="Album" year="2025"
 ```
 
-**Sortie attendue :**
+### 3. **Lancement du Mode Graphique (GUI)**
+
+```bash
+python3 src/gui/Gui.py
 ```
-Client Partner ID 101 prêt à se connecter à 127.0.0.1:8080
-Connexion réussie au port 8080.
+
+**Fonctionnalités GUI :**
+1. **Ouvrir Dossier** : Explore une arborescence et liste tous les fichiers MP3/FLAC
+2. **Sélectionner un fichier** : Clic sur un fichier pour afficher ses métadonnées
+3. **Modifier les tags** : Éditer les champs et cliquer sur "💾 Sauvegarder"
+4. **Télécharger cover** : Recherche automatique sur Internet avec validation visuelle
+5. **Ajouter à playlist** : Bouton "+" pour construire une liste de lecture
+6. **Lire la playlist** : Lecture séquentielle de tous les morceaux
+7. **Recherche API** : Onglet dédié pour récupérer paroles et infos d'albums
+8. **Ouvrir Playlist** : Importer un fichier XSPF existant
+
+## 📖 Exemples d'Utilisation
+
+### Cas d'usage 1 : Explorer et créer une playlist
+```bash
+# 1. Explorer un dossier de musique
+python3 src/cli/Cli.py -d ~/Musique/
+
+# 2. Générer une playlist de tous les fichiers trouvés
+python3 src/cli/Cli.py -d ~/Musique/ -o toute_ma_musique.xspf
+
+# 3. Lire la playlist générée
+python3 src/cli/Cli.py -p toute_ma_musique.xspf
 ```
 
+### Cas d'usage 2 : Corriger les métadonnées
+```bash
+# Afficher les tags actuels
+python3 src/cli/Cli.py -f chanson.mp3
 
-## 🔐 Sécurité
+# Corriger les informations
+python3 src/cli/Cli.py -u file=chanson.mp3 title="Titre Correct" artist="Artiste Correct" year="2024"
 
-### 1. **Contraintes Base de Données**
-- **Intégrité référentielle** : Clés étrangères avec CASCADE
-- **Contraintes de domaine** : CHECK, UNIQUE, NOT NULL
-- **Validation format** : Email, téléphone, dates
-- **Cohérence temporelle** : `date_fin > date_debut`
+# Vérifier les modifications
+python3 src/cli/Cli.py -f chanson.mp3
+```
+
+### Cas d'usage 3 : Télécharger des covers (GUI)
+1. Lancer l'interface graphique
+2. Ouvrir un dossier de musique
+3. Sélectionner un fichier sans cover
+4. Cliquer sur "Télécharger depuis Internet"
+5. Valider ou refuser la cover proposée
+6. La cover est sauvegardée dans le fichier ET dans le dossier (cover.jpg)
+
+## 🔐 Validation et Conformité
+
+### 1. **Format XSPF**
+Les playlists générées sont conformes au standard XSPF et validables sur :
+```
+https://validator.xspf.org/
+```
+
+### 2. **Formats Audio Supportés**
+- **MP3** : Tags ID3v2.3/ID3v2.4 (lecture/écriture)
+- **FLAC** : Vorbis Comments (lecture/écriture)
+
+### 3. **Vérification MIME Type**
+Le programme vérifie l'extension ET le type MIME de chaque fichier pour garantir qu'il s'agit bien d'un fichier audio valide.
+
+## 📝 Documentation
+
+### Génération de la documentation
+```bash
+# Documentation Doxygen 
+doxygen Doxyfile
+```
+
+## 🎓 Évaluation
+
+### Livrables
+- ✅ **Diagramme de Gantt** (PNG) - Semaine 42
+- ✅ **Point d'avancement 1** - 7 novembre (Semaine 45)
+- ✅ **Point d'avancement 2** - 28 novembre (Semaine 48)
+- ✅ **Vidéo de démonstration** (max 5 min) - 11 décembre 22h00
+- ✅ **Rapport de projet** (5-10 pages ODT + PDF) - 12 décembre 22h00
+- ✅ **Code source complet** + Documentation - 12 décembre 22h00
+- ✅ **Soutenance** (15 min : 8 min présentation + 7 min questions) - 19 décembre
+
+### Notation
+- Diagramme de Gantt : 1 point
+- Points d'avancement : 3 points (2 + 1)
+- Vidéo de démonstration : 5 points
+- Soutenance : 4 points
+- Livrables finaux : 7 points
+
+## 🐛 Résolution de Problèmes
+
+### Erreur : "Module customtkinter not found"
+```bash
+pip install customtkinter
+```
+
+### Erreur : "pygame.error: No available audio device"
+Vérifiez que votre système a un périphérique audio fonctionnel et que les pilotes sont à jour.
+
+### Les covers ne se téléchargent pas
+- Vérifiez votre connexion Internet
+- Assurez-vous que les champs "Artiste" et "Album" sont correctement renseignés
+- Certains albums peuvent ne pas avoir de cover disponible
+
+### La playlist XSPF n'est pas valide
+Utilisez le validateur en ligne : https://validator.xspf.org/
+Les chemins de fichiers doivent être au format `file:///chemin/absolu/vers/fichier.mp3`
+
+## 📧 Contact et Support
+
+Pour toute question concernant le projet :
+- **Ouardia ACHAB** : ouardia.achab@etu.cyu.fr
+- **Lisa ISSAD** : lisa.issad@etu.cyu.fr
+- **Omar HACHANI** : omar.hachani@etu.cyu.fr
+
+**Responsable pédagogique** : Jean-luc BOURDON  
+---
+
+*Projet réalisé dans le cadre du module Python - L3 Informatique - CY Cergy Paris Université - 2025/2026*
 
 
-### 2. **Réseau**
-- **TCP** : Garantie livraison et ordre des messages
-- **Validation JSON** : Vérification structure avant traitement
-- **Gestion erreurs** : Codes HTTP-like (400, 401, 404, 409, 500)
-- **Authentification** : Handshake HELLO/HELLO_ACK obligatoire
+
+
+
 
