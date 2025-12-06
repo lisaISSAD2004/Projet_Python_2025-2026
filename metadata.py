@@ -233,49 +233,41 @@ class Metadata:
         url = f"https://api.lyrics.ovh/v1/{quote(self.artist)}/{quote(self.title)}"
         
         try:
+            # Note: Nous gardons le print de la recherche pour le diagnostic
             print(f"🔍 Recherche paroles : {self.artist} - {self.title} (Via lyrics.ovh)")
             
-            # Utilisation de Timeout, ConnectionError et RequestException pour un meilleur diagnostic
             resp = requests.get(url, timeout=10)
             resp.raise_for_status() # Lève une exception pour les codes 4xx/5xx
 
             if resp.status_code == 200:
                 data = resp.json()
-                # L'API retourne un dictionnaire vide si les paroles ne sont pas trouvées (en plus du 404)
+                
                 if 'lyrics' in data:
                     self.lyrics = data['lyrics']
                     print("✓ Paroles récupérées avec succès")
                     return True
                 else:
-                    self.lyrics = None # Assurez-vous que c'est None en cas d'échec
-                    print("✗ Paroles introuvables dans la réponse de l'API.")
+                    self.lyrics = None # ⬅️ LAISSE self.lyrics à None
                     return False
-        except Timeout:
-            print("✗ Erreur récupération lyrics : Le temps d'attente (timeout) a été dépassé.")
+        
+        # ❌ Suppression des messages d'erreur spécifiques dans les blocs except ❌
+        except requests.exceptions.Timeout:
             self.lyrics = None
             return False
         
-        except ConnectionError as e:
-            # Capture spécifiquement l'erreur de résolution de nom (DNS) ou de connexion
-            print(f"✗ Erreur récupération lyrics : Impossible de se connecter à l'hôte (DNS ou réseau). Détails: {e}")
+        except requests.exceptions.ConnectionError as e:
             self.lyrics = None
             return False
             
-        except requests.HTTPError as e:
-            # Gère les statuts d'erreur HTTP (404 Not Found, 500 Server Error, etc.)
-            print(f"✗ Paroles introuvables (Erreur HTTP {e.response.status_code}).")
+        except requests.exceptions.HTTPError as e:
             self.lyrics = None
             return False
             
-        except RequestException as e:
-            # Attrape toute autre erreur de la librairie requests
-            print(f"✗ Erreur récupération lyrics : Problème lors de la requête HTTP. Détails: {e}")
+        except requests.exceptions.RequestException as e:
             self.lyrics = None
             return False
         
         except Exception as e:
-            # Pour toute autre exception (ex: erreur de décodage JSON)
-            print(f"✗ Erreur inattendue lors de la récupération des paroles. Détails: {e}")
             self.lyrics = None
             return False
     
