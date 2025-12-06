@@ -78,8 +78,19 @@ def main():
         meta.display_tags()
         print("\n📥 Récupération des paroles...")
         meta.fetch_lyrics()
-        meta.display_lyrics()
-
+        
+        # 🎯 CORRECTION : Affichage simplifié des paroles
+        try:
+            if meta.lyrics:
+                meta.display_lyrics()
+            else:
+                # Si fetch_lyrics a retourné False, n'a pas trouvé de paroles, ou erreur HTTP/réseau
+                print("✗ Les paroles n'ont pas été chargées.")
+        
+        except AttributeError:
+            # Gérer le cas où display_lyrics() est manquant (comme convenu)
+            print("✗ Les paroles n'ont pas été chargées.")
+            
         # --- Cas 3 : Lire un fichier ou playlist ---
     elif args.play:
         path = args.play
