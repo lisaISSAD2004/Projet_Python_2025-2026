@@ -20,9 +20,9 @@ class Mp3File(AudioFile):
         self.metadata = Metadata(self.path) 
         self.duration = self.metadata.duration # Mise à jour de l'attribut local
         return self.metadata
-
+    """
     def save_tags(self, title=None, artist=None, album=None, year=None):
-        """Met à jour et sauvegarde les métadonnées d’un MP3."""
+        Met à jour et sauvegarde les métadonnées d’un MP3.
         audio = MP3(self.path, ID3=ID3)
 
         if audio.tags is None:
@@ -38,8 +38,10 @@ class Mp3File(AudioFile):
             audio.tags.add(TDRC(encoding=3, text=str(year)))
 
         audio.save()
-    # Fichier : Mp3File.py
 
+
+    # Fichier : Mp3File.py
+"""
     def save_tags(self, title=None, artist=None, album=None, year=None, genre=None): # <-- AJOUTER genre=None
         """Met à jour et sauvegarde les métadonnées d’un MP3, y compris le genre."""
         audio = MP3(self.path, ID3=ID3)
@@ -61,3 +63,7 @@ class Mp3File(AudioFile):
             audio.tags.add(TCON(encoding=3, text=genre)) # <-- AJOUTER cette ligne
 
         audio.save()
+
+
+
+    
