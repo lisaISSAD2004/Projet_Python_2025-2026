@@ -14,7 +14,7 @@ Elle implémente la logique commune pour :
 @var duration
 @details Durée du fichier audio en secondes (float).
 
-@author Votre Nom (votre.email@exemple.com)
+
 @version 1.0
 @date Décembre 2025
 @note Assurez-vous que la bibliothèque pygame est installée et configurée.
