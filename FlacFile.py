@@ -1,3 +1,23 @@
+"""!
+@class FlacFile
+@brief Représente un fichier audio au format FLAC et gère ses métadonnées Vorbis Comment.
+
+@details Cette classe étend la fonctionnalité de la classe de base AudioFile pour la gestion spécifique
+des fichiers FLAC. Elle permet d'extraire, de modifier (titre, artiste, album, année, genre),
+et de sauvegarder les Vorbis Comments, ainsi que de gérer la durée et les couvertures (non implémenté ici).
+
+@var path
+@details Chemin absolu du fichier audio (hérité de AudioFile).
+
+@var metadata
+@details Objet de type Metadata ou None, représentant les métadonnées extraites du fichier.
+
+@var duration
+@details Durée (float) du fichier audio en secondes.
+
+@var vorbis
+@details Référence interne (`FLAC | None`) utilisée pour manipuler la structure des Vorbis Comments via la librairie \c mutagen.
+"""
 import io
 from mutagen.flac import FLAC
 import mutagen
@@ -38,8 +58,22 @@ class FlacFile(AudioFile):
 
     def save_tags(self, title=None, artist=None, album=None, year=None, genre=None):
         """
-        Met à jour les métadonnées (titre, artiste, album, année, genre)
-        et les sauvegarde dans le fichier FLAC en utilisant les Vorbis Comments.
+        @brief Met à jour et sauvegarde les métadonnées Vorbis Comment dans le fichier FLAC.
+
+        @details Met à jour les tags TITLE, ARTIST, ALBUM, DATE (année), et GENRE.
+
+        Un tag sera supprimé du fichier si une valeur vide ou \c None est fournie et qu'il existait.
+
+        @param title [in] Nouveau titre (str).
+
+        @param artist [in] Nouvel artiste (str).
+
+        @param album [in] Nouvel album (str).
+
+        @param year [in] Nouvelle année (str, mappé sur le tag DATE).
+
+        @param genre [in] Nouveau genre (str).
+
         """
         audio = FLAC(self.path)
 
