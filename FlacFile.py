@@ -1,5 +1,6 @@
 import io
 from mutagen.flac import FLAC
+import mutagen
 from PIL import Image
 from AudioFile import AudioFile
 from Metadata import Metadata
@@ -62,5 +63,3 @@ class FlacFile(AudioFile):
 
         audio.save()
         print(f"Tags mis à jour pour : {self.path}")
-
-    # ... (Le reste de votre classe FlacFile) ...
