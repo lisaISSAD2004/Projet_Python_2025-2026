@@ -1,4 +1,4 @@
-"""!
+r"""!
 @class Mp3File
 @brief Représente un fichier audio au format MP3 et gère ses tags ID3.
 
@@ -30,7 +30,7 @@ class Mp3File(AudioFile):
     """Classe représentant un fichier MP3 avec gestion des métadonnées."""
 
     def __init__(self, path: str):
-        """!
+        r"""!
         @brief Constructeur. Initialise un objet Mp3File.
 
         @details Initialise l'objet et prépare le gestionnaire interne des tags ID3 (\c self.id3).
@@ -41,7 +41,7 @@ class Mp3File(AudioFile):
         self.id3 = None
 
     def extract_metadata(self) -> Metadata:
-        """!
+        r"""!
         @brief Extrait toutes les métadonnées du fichier MP3.
 
         @details Utilise la classe \c Metadata pour l'extraction complète des tags, de la durée, et de la pochette.
@@ -58,7 +58,7 @@ class Mp3File(AudioFile):
     # Fichier : Mp3File.py
 
     def save_tags(self, title=None, artist=None, album=None, year=None, genre=None): # <-- AJOUTER genre=None
-        """!
+        r"""!
         @brief Met à jour et sauvegarde les tags ID3 du fichier MP3.
 
         @details Met à jour les tags ID3 standard :
@@ -95,3 +95,35 @@ class Mp3File(AudioFile):
             audio.tags.add(TCON(encoding=3, text=genre)) # <-- AJOUTER cette ligne
 
         audio.save()
+
+    def save_cover(self, image_data: bytes) -> bool:
+        """
+        Sauvegarde la pochette d'album dans le fichier MP3.
+        
+        Args:
+            image_data: Les données binaires de l'image (JPEG)
+            
+        Returns:
+            True si la sauvegarde réussit, False sinon
+        """
+        try:
+            audio = ID3(self.path)
+            
+            # Supprimer les anciennes pochettes
+            audio.delall('APIC')
+            
+            # Ajouter la nouvelle pochette
+            audio.add(APIC(
+                encoding=3,  # UTF-8
+                mime='image/jpeg',
+                type=3,  # Front cover
+                desc='Cover',
+                data=image_data
+            ))
+            
+            audio.save()
+            return True
+            
+        except Exception as e:
+            print(f"Erreur lors de la sauvegarde de la cover MP3 pour {self.path}: {e}")
+            return False
