@@ -1,3 +1,27 @@
+"""
+@class AudioFile
+@brief Classe abstraite représentant un fichier audio générique.
+
+@details Cette classe sert de base pour les classes spécifiques comme Mp3File et FlacFile.
+Elle implémente la logique commune pour :
+* L'extraction et la sauvegarde des métadonnées.
+* La récupération de la durée.
+* La gestion de la lecture audio via pygame.
+
+@var metadata
+@details Objet contenant les métadonnées du fichier audio.
+
+@var duration
+@details Durée du fichier audio en secondes (float).
+
+@author Votre Nom (votre.email@exemple.com)
+@version 1.0
+@date Décembre 2025
+@note Assurez-vous que la bibliothèque pygame est installée et configurée.
+
+"""
+
+
 from abc import ABC, abstractmethod
 from File import File
 from Metadata import Metadata
@@ -19,7 +43,6 @@ class AudioFile(File, ABC):
         self.metadata: Metadata = Metadata(self.path)
         self.duration: float = 0.0
 
-    # --- Méthodes abstraites ---
     @abstractmethod
     def extract_metadata(self) -> Metadata:
         """Extrait les métadonnées du fichier audio."""
@@ -49,7 +72,6 @@ class AudioFile(File, ABC):
         
         
         try:
-            # S'assurer que le mixer est initialisé
             if not pygame.mixer.get_init():
                 pygame.mixer.init() 
                 
@@ -57,11 +79,8 @@ class AudioFile(File, ABC):
             pygame.mixer.music.play()
             
             if wait_for_end:
-                # ⚠️ L'ancienne boucle bloquante est maintenant conditionnelle ⚠️
-                # Cette boucle gère l'arrêt par 'q' dans la console
                 print(f"▶ Lecture de : {self.path} (tapez 'q' pour arrêter)")
                 while pygame.mixer.music.get_busy():
-                    # Vérifier si 'q' a été tapé sans bloquer (pour la console)
                     if sys.stdin in select.select([sys.stdin], [], [], 0)[0]:
                         line = sys.stdin.readline().strip()
                         if line.lower() == 'q':
@@ -70,7 +89,6 @@ class AudioFile(File, ABC):
                             break
                     time.sleep(0.1) 
             else:
-                 # Lecture démarrée, on retourne la main immédiatement à la boucle de la playlist
                  print(f"▶ Démarrage en playlist de : {self.path}")
             
         except Exception as e:
