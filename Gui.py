@@ -131,9 +131,9 @@ class Gui(tk.Tk):
         self.title("Gestionnaire Musical Simple (Tkinter)")
         self.geometry("1000x600")
         self.resizable(True, True) 
-        
         self.current_directory: Directory = None
-        self.selected_file: Metadata = None
+        self.selected_file: Metadata = None  # ← Garde les métadonnées
+        self.selected_audio_object = None 
         self.cover_image_tk = None
         self.is_playing_playlist: bool = False
         self.playlist_thread: Optional[threading.Thread] = None
@@ -355,7 +355,11 @@ class Gui(tk.Tk):
         self.file_listbox.delete(0, tk.END)
         if not self.current_directory: return
             
-        for metadata in self.current_directory.files:
+        # 🚨 CORRECTION ICI
+        for audio_object in self.current_directory.files:
+            metadata = audio_object.metadata
+            
+            # Utiliser metadata.title, metadata.file_name, et metadata.artist
             title = (metadata.title or metadata.file_name).lower()
             artist = (metadata.artist or "").lower()
             
@@ -378,7 +382,12 @@ class Gui(tk.Tk):
             self.footer_label.config(text="Prêt | 0 fichiers trouvés")
             return
 
-        for metadata in self.current_directory.files:
+        # 🚨 CORRECTION ICI
+        for audio_object in self.current_directory.files:
+            # Assurez-vous d'avoir l'objet Metadata
+            metadata = audio_object.metadata
+            
+            # Utiliser metadata.title et metadata.artist, et metadata.file_name
             title = metadata.title or metadata.file_name
             artist = metadata.artist or "Artiste inconnu"
             self.file_listbox.insert(tk.END, f"{title} - {artist}")
@@ -395,20 +404,25 @@ class Gui(tk.Tk):
         @param event [in] Événement de sélection de Listbox.
         """
         selected_indices = self.file_listbox.curselection()
-        if not selected_indices: return
+        if not selected_indices: 
+            return
             
         index = selected_indices[0]
         
         search_text = self.search_entry.get().lower()
         filtered_files = []
-        for metadata in self.current_directory.files:
+        
+        for audio_object in self.current_directory.files:
+            metadata = audio_object.metadata
             title = (metadata.title or metadata.file_name).lower()
             artist = (metadata.artist or "").lower()
             if search_text in title or search_text in artist:
-                filtered_files.append(metadata)
-
+                filtered_files.append(audio_object)
+        
         if index < len(filtered_files):
-            self.selected_file = filtered_files[index]
+            # ✅ STOCKER L'OBJET AUDIO ET LES MÉTADONNÉES SÉPARÉMENT
+            self.selected_audio_object = filtered_files[index]
+            self.selected_file = self.selected_audio_object.metadata
             self.show_metadata_panel() 
             self.display_metadata(self.selected_file)
 
@@ -447,7 +461,7 @@ class Gui(tk.Tk):
         r"""!
         @brief Récupère les tags modifiés des champs d'entrée et les sauvegarde dans le fichier audio.
         """
-        if not self.selected_file:
+        if not self.selected_audio_object:  # ✅ UTILISER selected_audio_object
             messagebox.showinfo("Info", "Aucun fichier sélectionné.")
             return
 
@@ -457,12 +471,12 @@ class Gui(tk.Tk):
                 new_tags[key] = entry.get()
 
         try:
-            if self.selected_file.save_tags(**new_tags):
+            # ✅ Appeler save_tags sur l'objet audio
+            if self.selected_audio_object.save_tags(**new_tags):
                 
-                self.selected_file.extract_tags() 
-                
-                for tag_key, tag_value in new_tags.items():
-                    setattr(self.selected_file, tag_key, tag_value)
+                # Recharger les métadonnées
+                self.selected_audio_object.extract_metadata()
+                self.selected_file = self.selected_audio_object.metadata
                 
                 self.update_file_list()
                 self.display_metadata(self.selected_file)
@@ -478,7 +492,7 @@ class Gui(tk.Tk):
         r"""!
         @brief Télécharge la pochette depuis iTunes et demande à l'utilisateur de la sauvegarder.
         """
-        if not self.selected_file:
+        if not self.selected_audio_object:  # ✅ UTILISER selected_audio_object
             messagebox.showinfo("Info", "Veuillez sélectionner un fichier d'abord.")
             return
             
@@ -486,7 +500,7 @@ class Gui(tk.Tk):
         album = self.entries['album'].get().strip()
 
         if not artist or not album:
-            messagebox.showwarning("Attention", "Veuillez renseigner **l'artiste** et **l'album**.")
+            messagebox.showwarning("Attention", "Veuillez renseigner l'artiste et l'album.")
             return
 
         self.btn_download_cover.config(text="Recherche en cours...", state=tk.DISABLED)
@@ -517,24 +531,27 @@ class Gui(tk.Tk):
             self.cover_image_tk = ImageTk.PhotoImage(img)
             self.cover_label.config(image=self.cover_image_tk, text="", bg="white")
 
-            if messagebox.askyesno("Confirmation", "Cover trouvée! Voulez-vous la sauvegarder dans le fichier?"):
+            if messagebox.askyesno("Confirmation", "Cover trouvée! Voulez-vous la sauvegarder?"):
                 
-                if self.selected_file.save_cover(cover_data):
+                # ✅ UTILISER selected_audio_object pour sauvegarder
+                if self.selected_audio_object.save_cover(cover_data):
                 
-                    album_dir = os.path.dirname(self.selected_file.file_path)
+                    # Sauvegarder aussi dans le dossier
+                    album_dir = os.path.dirname(self.selected_audio_object.path)
                     cover_path = os.path.join(album_dir, "cover.jpg")
                     with open(cover_path, "wb") as f:
-                         f.write(cover_data)
-                         
-                    self.selected_file.extract_cover() 
+                        f.write(cover_data)
+                        
+                    # Recharger les métadonnées
+                    self.selected_audio_object.extract_metadata()
+                    self.selected_file = self.selected_audio_object.metadata
                     self.display_metadata(self.selected_file)
                     messagebox.showinfo("Succès", "Cover sauvegardée avec succès!")
                 else:
-                    messagebox.showerror("Erreur", "Échec de la sauvegarde de la cover dans le fichier audio.")
+                    messagebox.showerror("Erreur", "Échec de la sauvegarde de la cover.")
             
         except Exception as e:
-            messagebox.showerror("Erreur", f"Impossible d'afficher ou de sauvegarder la cover: {e}")
-            self.display_metadata(self.selected_file)
+            messagebox.showerror("Erreur", f"Impossible de traiter la cover: {e}")
 
     def play_selected_file(self):
         r"""!
@@ -543,25 +560,15 @@ class Gui(tk.Tk):
         @details Arrête toute lecture en cours, puis lance la lecture du fichier
         en utilisant la méthode \c play() dans un thread séparé.
         """
-        if not self.selected_file:
+        if not self.selected_audio_object:  # ✅ UTILISER selected_audio_object
             messagebox.showinfo("Info", "Aucun fichier sélectionné.")
             return
             
-        file_path = self.selected_file.file_path
-
         self.stop_playback(silent=True) 
-
-        if file_path.lower().endswith(".mp3"):
-            audio_instance = Mp3File(file_path)
-        elif file_path.lower().endswith(".flac"):
-            audio_instance = FlacFile(file_path)
-        else:
-            messagebox.showwarning("Erreur", "Format non supporté pour la lecture.")
-            return
-            
-        threading.Thread(target=audio_instance.play, daemon=True).start()
+        threading.Thread(target=self.selected_audio_object.play, daemon=True).start()
         
-        self.footer_label.config(text=f"▶ Lecture en cours : {self.selected_file.title or self.selected_file.file_name}")
+        title = self.selected_file.title or self.selected_file.file_name
+        self.footer_label.config(text=f"▶ Lecture en cours : {title}")
 
     def stop_playback(self, silent: bool = False):
         r"""!
@@ -888,10 +895,10 @@ class Gui(tk.Tk):
         self.btn_show_lyrics.config(text="Recherche en cours...", state=tk.DISABLED)
         self.update()
 
-        metadata_to_fetch = self.selected_file 
+        metadata_to_fetch = self.selected_file  # ✅ C'est déjà un objet Metadata
         
         threading.Thread(target=lambda: self._fetch_lyrics_worker(metadata_to_fetch), daemon=True).start()
-        
+            
 if __name__ == "__main__":
     # L'initialisation de Pygame est nécessaire si la lecture audio est utilisée
     try:
