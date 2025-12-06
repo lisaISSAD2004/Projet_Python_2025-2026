@@ -78,7 +78,6 @@ class Gui(tk.Tk):
         
         self.current_directory: Directory = None
         self.selected_file: Metadata = None
-        self.playlist: List[Metadata] = []
         self.cover_image_tk = None
         self.is_playing_playlist: bool = False
         self.playlist_thread: Optional[threading.Thread] = None
@@ -174,16 +173,22 @@ class Gui(tk.Tk):
         fields_frame.grid_columnconfigure(1, weight=1)
 
         # Clés utilisées : 'titre', 'artiste', 'album', 'year', 'duration', 'genre'
-        labels = ["Titre", "Artiste", "Album", "Année", "Durée", "Genre"] 
+        labels_mapping = [
+            ("Titre", "title"),
+            ("Artiste", "artist"),
+            ("Album", "album"),
+            ("Année", "year"),
+            ("Durée", "duration"),
+            ("Genre", "genre")
+        ]
+        
         self.entries = {}
         
-        for i, label_text in enumerate(labels):
-            key = label_text.lower().replace("année", "year").replace("durée", "duration")
-            
+        for i, (label_text, key) in enumerate(labels_mapping):
             tk.Label(fields_frame, text=f"{label_text}:").grid(row=i, column=0, sticky="w", pady=5, padx=(0, 10))
             entry = tk.Entry(fields_frame)
             entry.grid(row=i, column=1, sticky="ew", pady=5)
-            self.entries[key] = entry
+            self.entries[key] = entry # ⬅️ Clé du dictionnaire est 'title', 'artist', etc.
             
         self.entries['duration'].config(state='readonly')
 
@@ -211,9 +216,6 @@ class Gui(tk.Tk):
         self.btn_show_lyrics.pack(fill="x", padx=10, pady=5)
 
 
-       # --- Boutons de Lecture/Contrôle ---
-        self.btn_play_file = tk.Button(self.meta_scroll_frame, text="▷ Lire le Morceau", 
-                                       command=self.play_selected_file)
 
     def create_right_panel(self, parent):
         frame = tk.LabelFrame(parent, text="Playlist Actuelle", padx=5, pady=5)
@@ -304,12 +306,12 @@ class Gui(tk.Tk):
             
         # Remplir les champs
         for key, entry in self.entries.items():
-            python_key = key.replace('artiste', 'artist').replace('titre', 'title').replace('duration', 'duration').replace('year', 'year').replace('album', 'album').replace('genre', 'genre')
-            value = getattr(metadata, python_key, "") 
-            entry.config(state='normal')
-            entry.delete(0, tk.END)
-            entry.insert(0, str(value or ""))
-            if key == 'duration': 
+           value = getattr(metadata, key, "") 
+            
+           entry.config(state='normal')
+           entry.delete(0, tk.END)
+           entry.insert(0, str(value or ""))
+           if key == 'duration': 
                  entry.config(state='readonly')
         
         # Gérer la Cover
@@ -323,6 +325,8 @@ class Gui(tk.Tk):
                 self.cover_label.config(image=self.cover_image_tk, text="", bg="white")
             except Exception:
                 self.cover_image_tk = None
+
+
     def save_metadata(self):
         if not self.selected_file:
             messagebox.showinfo("Info", "Aucun fichier sélectionné.")
@@ -330,28 +334,22 @@ class Gui(tk.Tk):
 
         new_tags = {}
         for key, entry in self.entries.items():
-            python_key = key.replace('artiste', 'artist').replace('titre', 'title').replace('album', 'album').replace('genre', 'genre').replace('year', 'year')
-            if python_key != 'duration':
-                new_tags[python_key] = entry.get()
+            # 🚀 CORRECTION : Plus de .replace(). La clé est déjà 'title', 'artist', etc.
+            if key != 'duration':
+                new_tags[key] = entry.get()
 
         try:
             if self.selected_file.save_tags(**new_tags):
                 
-                # ÉTAPE 1: Ré-extraction de tout (durée, genre, etc.)
                 self.selected_file.extract_tags() 
                 
-                # ✅ CORRECTION : Forcer TOUS les tags entrés par l'utilisateur (même vides)
-                # Cela garantit que si l'utilisateur efface un champ, il reste vide
+                # Le forçage d'affichage utilise déjà les clés simplifiées (correct)
                 for tag_key, tag_value in new_tags.items():
                     setattr(self.selected_file, tag_key, tag_value)
                 
-                # ÉTAPE 3: Mettre à jour la Listbox
                 self.update_file_list()
-
-                # ÉTAPE 4: Ré-afficher les métadonnées
                 self.display_metadata(self.selected_file)
                 
-                # ÉTAPE 5: Message de succès
                 messagebox.showinfo("Succès", "Métadonnées sauvegardées avec succès.")
             else:
                 messagebox.showerror("Erreur", "La sauvegarde des métadonnées a échoué.")
