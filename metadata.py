@@ -9,6 +9,7 @@ from urllib.parse import quote
 from requests.exceptions import Timeout, RequestException, ConnectionError
 
 
+
 class Metadata:
     """Classe pour gérer les métadonnées des fichiers audio MP3 et FLAC"""
     
@@ -37,31 +38,64 @@ class Metadata:
         """Extrait les métadonnées textuelles (titre, artiste, album, etc.)"""
         try:
             if self.file_path.lower().endswith(".mp3"):
+                
+                # --- Bloc MP3 : Lecture via EasyID3 ---
                 audio = EasyID3(self.file_path)
-                self.title = audio.get("title", [""])[0]
+                
+                # Récupération du titre
+                title_list = audio.get("title", [""])
+                self.title = title_list[0]
+                
+                # Fallback : Si EasyID3 ne donne rien (pour gérer les bugs de relecture)
+                if not self.title:
+                     try:
+                        from mutagen.id3 import ID3, TIT2
+                        full_tags = ID3(self.file_path)
+                        # Lire directement la frame TIT2
+                        if 'TIT2' in full_tags:
+                            self.title = str(full_tags.get('TIT2', ''))
+                     except Exception:
+                        pass
+                
+                # Reste des tags MP3
                 self.artist = audio.get("artist", [""])[0]
                 self.album = audio.get("album", [""])[0]
                 self.year = audio.get("date", [""])[0]
-                # CORRECTION 1: Gestion plus robuste du genre
                 genre_list = audio.get("genre", [""])
                 self.genre = genre_list[0] if genre_list else ""
                 
             elif self.file_path.lower().endswith(".flac"):
-                audio = FLAC(self.file_path)
-                self.title = audio.get("title", [""])[0]
-                self.artist = audio.get("artist", [""])[0]
-                self.album = audio.get("album", [""])[0]
-                self.year = audio.get("date", [""])[0]
-                # CORRECTION 1: Gestion plus robuste du genre
-                genre_list = audio.get("genre", [""])
-                self.genre = genre_list[0] if genre_list else ""
                 
+                # 🚀 CORRECTION FLAC : Gestion d'erreur spécifique pour l'ouverture 🚀
+                try:
+                    audio = FLAC(self.file_path)
+                    
+                    # Extraction des tags (Vorbis Comments)
+                    self.title  = audio.get("title", [""])[0]
+                    self.artist = audio.get("artist", [""])[0]
+                    self.album  = audio.get("album", [""])[0]
+                    self.year   = audio.get("date", [""])[0]
+                    
+                    genre_list = audio.get("genre", [""])
+                    self.genre = genre_list[0] if genre_list else ""
+                    
+                    
+
+                except Exception as e:
+                    # Si l'ouverture ou la lecture FLAC échoue, cela est affiché
+                    print(f"❌ Erreur de lecture FLAC critique pour '{self.file_path}': {e}")
+                    # Les attributs restent vides ("")
+                    
         except Exception as e:
+            # Bloc d'exception général (inchangé)
             print(f"Erreur extraction tags pour {self.file_path}: {e}")
     
+    # Fichier: Metadata.py (Méthode extract_duration)
+
     def extract_duration(self):
         """Extrait la durée du fichier audio au format MM:SS"""
         try:
+            # 🚀 CORRECTION : Isoler l'accès au fichier pour la durée
             audio = File(self.file_path)
             if audio and audio.info:
                 seconds = int(audio.info.length)
@@ -69,18 +103,11 @@ class Metadata:
                 secs = seconds % 60
                 self.duration = f"{minutes:02d}:{secs:02d}"
         except Exception as e:
-            print(f"Erreur extraction durée pour {self.file_path}: {e}")
+            # ❌ Affiche l'erreur si la lecture de la durée échoue (souvent critique)
+            print(f"❌ Erreur critique lors de l'extraction de la durée pour '{self.file_path}': {e}")
             self.duration = ""
-    def display_lyrics(self):
-        """Affiche les paroles si elles ont été chargées"""
-        if self.lyrics:
-            print("\n" + "📝 PAROLES" + "\n" + "="*50)
-            print(self.lyrics)
-            print("="*50 + "\n")
-        elif self.lyrics is not None and not self.lyrics: # Si fetch_lyrics a réussi mais n'a rien trouvé
-            print("\n✗ Paroles introuvables pour ce titre.")
-        else: # Si lyrics est None (pas encore chargé ou échec réseau)
-            print("\n✗ Les paroles n'ont pas été chargées ")
+
+
     def extract_cover(self):
         try:
             if self.file_path.lower().endswith(".mp3"):
@@ -103,55 +130,100 @@ class Metadata:
             self.cover = None
     
     def save_tags(self, title=None, artist=None, album=None, year=None, genre=None):
-        """Sauvegarde les métadonnées modifiées dans le fichier"""
         try:
-            if self.file_path.lower().endswith(".mp3"):
-                # CORRECTION 3: Créer le fichier ID3 s'il n'existe pas
+            is_mp3 = self.file_path.lower().endswith(".mp3")
+            is_flac = self.file_path.lower().endswith(".flac")
+
+            if is_mp3:
                 try:
                     audio = EasyID3(self.file_path)
                 except:
-                    # Si pas de tags ID3, en créer
                     from mutagen.id3 import ID3
                     audio_id3 = ID3()
                     audio_id3.save(self.file_path)
                     audio = EasyID3(self.file_path)
                 
-            elif self.file_path.lower().endswith(".flac"):
+            elif is_flac:
                 audio = FLAC(self.file_path)
             else:
-                print("Format de fichier non supporté")
+                print("Format de fichier non supporté pour la sauvegarde des tags.")
                 return False
             
-            # Mise à jour des tags
-            if title is not None:
-                audio["title"] = title
-                self.title = title
-            if artist is not None:
-                audio["artist"] = artist
-                self.artist = artist
-            if album is not None:
-                audio["album"] = album
-                self.album = album
-            if year is not None:
-                audio["date"] = year
-                self.year = year
-            if genre is not None:
-                audio["genre"] = genre
-                self.genre = genre
+            tags_to_update = {
+                "title": title,
+                "artist": artist,
+                "album": album,
+                "date": year,
+                "genre": genre
+            }
             
-            audio.save()
+            for key, value in tags_to_update.items():
+                
+                attr_name = 'year' if key == 'date' else key 
+                
+                if value is not None:
+                    
+                    if value == "":
+                        if key in audio:
+                            del audio[key]
+                        setattr(self, attr_name, "")
+                        
+                    elif value != "":
+                        if is_flac:
+                            audio[key] = [value]
+                        else:
+                             audio[key] = [value]
+                             
+                        setattr(self, attr_name, value)
+                        
+            if is_mp3:
+                audio.save() 
+            else:
+                audio.save()
+
             print(f"✓ Métadonnées sauvegardées pour {self.file_name}")
             return True
             
         except Exception as e:
-            print(f"Erreur sauvegarde tags pour {self.file_path}: {e}")
+            print(f"❌ Erreur sauvegarde tags pour {self.file_path}: {e}")
             import traceback
             traceback.print_exc()
             return False
-    
-   
-            
-    
+
+    def save_cover(self, cover_data: bytes):
+        self.cover = io.BytesIO(cover_data)
+        self.cover.seek(0)
+        
+        try:
+            # --- LOGIQUE MP3 ---
+            if self.file_path.lower().endswith(".mp3"):
+                audio = ID3(self.file_path)
+                audio.delall('APIC')
+                audio.add(
+                    APIC(
+                        encoding=3, type=3, 
+                        mime='image/jpeg', desc='Cover',
+                        data=cover_data
+                    )
+                )
+                audio.save(v2_version=3)
+                
+            # --- LOGIQUE FLAC ---
+            elif self.file_path.lower().endswith(".flac"):
+                audio = FLAC(self.file_path)
+                audio.pictures = [] 
+                image = Picture()
+                image.data = cover_data
+                image.type = 3 
+                image.mime = 'image/jpeg'
+                audio.pictures.append(image)
+                audio.save()
+                
+            print(f"✓ Cover sauvegardée dans le fichier {self.file_name}")
+            return True
+        except Exception as e:
+            print(f"Erreur lors de la sauvegarde de la cover: {e}")
+            return False
     
 
     def fetch_lyrics(self):
@@ -229,7 +301,7 @@ class Metadata:
         # CHANGEMENT 2 : Ajuster l'affichage de la Cover
         print(f"🖼️  Cover   : {'✓ Trouvée' if self.cover else '✗ Non trouvé'}")
         if self.cover:
-            print(f"   Taille : {len(self.cover.getvalue())} bytes")
+            print(f"📏Taille : {len(self.cover.getvalue())} bytes")
         print(f"📝 Paroles : {'✓ Chargées' if self.lyrics else '✗ Non trouvées'}")
         print("="*50 + "\n")
 
