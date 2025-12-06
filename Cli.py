@@ -1,3 +1,34 @@
+"""!
+@file Cli.py
+@brief Interface en ligne de commande pour la gestion de fichiers audio MP3/FLAC.
+
+@details Ce programme permet d'explorer un dossier, d'afficher ou modifier les métadonnées
+d'un fichier audio, de lire un fichier ou une playlist XSPF, et de générer une playlist exportable.
+
+@version v1.0
+@date 05/12/2025
+
+@note Compilation non nécessaire; exécuté directement via Python 3: \c python3 \c Cli.py \c [options]
+
+@section options Options disponibles
+* \c -h \c / \c --help : Affiche l'aide
+* \c -d \c / \c --directory \c <path> : Explore un dossier contenant des fichiers audio
+* \c -f \c / \c --file \c <path> : Affiche les métadonnées d’un fichier
+* \c -p \c / \c --play \c <fichier|xspf>: Lit un fichier audio ou une playlist
+* \c -o \c / \c --output \c <fichier> : Nom du fichier de sortie pour une playlist XSPF
+* \c -u \c / \c --update-tags \c k=v... : Modifie les tags d'un fichier audio
+
+@section modules Modules Utilisés
+* \c argparse : Gestion des arguments en ligne de commande
+* \c sys : Gestion des erreurs & accès aux arguments bruts
+* \c Directory : Prise en charge des explorations de répertoires audio
+* \c Mp3File : Gestion des fichiers MP3
+* \c FlacFile : Gestion des fichiers FLAC
+* \c Metadata : Récupération et affichage des métadonnées (tags)
+* \c xml.etree.ElementTree : Lecture des playlists XSPF
+"""
+
+
 
 import argparse
 import sys
@@ -7,6 +38,17 @@ from FlacFile import FlacFile
 import os
 
 def main():
+    """
+    @brief Point d'entrée principal du programme en ligne de commande.
+
+    @details Analyse les arguments fournis par l'utilisateur, et exécute la fonctionnalité
+
+    demandée : exploration de dossier, affichage des métadonnées, lecture audio,
+
+    mise à jour des tags, ou génération de playlist XSPF.
+
+    @exception sys.exit(1) En cas d'argument manquant ou invalide.
+    """
     parser = argparse.ArgumentParser(
         prog="python3 Cli.py",
         description=(
@@ -54,7 +96,7 @@ def main():
 
     # --- Aucun argument ---
     if len(sys.argv) == 1:
-        print("❌ Erreur : aucun paramètre fourni.")
+        print("Erreur : aucun paramètre fourni.")
         print("Tapez 'python3 Cli.py -h' ou '--help' pour afficher l’aide.")
         sys.exit(1)
 
@@ -68,20 +110,20 @@ def main():
             try:
                 directory.generate_xspf_playlist(args.output)
             except AttributeError:
-                print("⚠️ La méthode generate_xspf_playlist() n’est pas encore implémentée.")
+                print("La méthode generate_xspf_playlist() n’est pas encore implémentée.")
 
     elif args.file:
         file_path = args.file
         
         if not os.path.exists(file_path):
-            print(f"❌ Erreur : Fichier non trouvé ou extension inconnue à ce chemin : {file_path}")
+            print(f"Erreur : Fichier non trouvé ou extension inconnue à ce chemin : {file_path}")
             sys.exit(1)
             
         if not (file_path.lower().endswith(".mp3") or 
                 file_path.lower().endswith(".flac") ):
                 
             
-            print(f"❌ Erreur : Extension non supportée pour l'affichage des métadonnées. Utilisez MP3, FLAC ou XSPF : {file_path}")
+            print(f"Erreur : Extension non supportée pour l'affichage des métadonnées. Utilisez MP3, FLAC ou XSPF : {file_path}")
             sys.exit(1)
             
         
@@ -108,7 +150,7 @@ def main():
             # Lecture d'une playlist XSPF
             if path.lower().endswith(".xspf"):
                 import xml.etree.ElementTree as ET
-                print(f"📂 Ouverture de la playlist : {path}")
+                print(f"Ouverture de la playlist : {path}")
 
                 tree = ET.parse(path)
                 root = tree.getroot()
@@ -122,7 +164,7 @@ def main():
                         tracks.append(real_path)
 
                 if not tracks:
-                    print("❌ Aucune piste trouvée dans la playlist.")
+                    print("Aucune piste trouvée dans la playlist.")
                     sys.exit(1)
 
                 print(f"🎵 {len(tracks)} morceau(x) trouvé(s). Lecture en cours...\n")
@@ -133,7 +175,7 @@ def main():
                     elif audio_path.lower().endswith(".flac"):
                         audio = FlacFile(audio_path)
                     else:
-                        print(f"⚠️ Format non supporté dans la playlist : {audio_path}")
+                        print(f"Format non supporté dans la playlist : {audio_path}")
                         continue
                     audio.play()
 
@@ -144,15 +186,15 @@ def main():
                 elif path.lower().endswith(".flac"):
                     audio = FlacFile(path)
                 else:
-                    print("❌ Format non supporté. Utilisez MP3, FLAC ou XSPF.")
+                    print("Format non supporté. Utilisez MP3, FLAC ou XSPF.")
                     sys.exit(1)
 
                 audio.play()
 
         except AttributeError:
-            print("⚠️ La méthode play() n’est pas encore implémentée.")
+            print("La méthode play() n’est pas encore implémentée.")
         except Exception as e:
-            print(f"❌ Erreur lors de la lecture : {e}")
+            print(f"Erreur lors de la lecture : {e}")
     
 
     # --- Cas 4 : Mise à jour des tags ---
@@ -160,13 +202,13 @@ def main():
         update_data = {}
         for pair in args.update_tags:
             if "=" not in pair:
-                print(f"❌ Argument invalide : {pair}. Format requis : clé=valeur")
+                print(f"Argument invalide : {pair}. Format requis : clé=valeur")
                 sys.exit(1)
             key, value = pair.split("=", 1)
             update_data[key] = value.strip('"').strip("'")
 
         if "file" not in update_data:
-            print("❌ Vous devez spécifier le fichier à modifier : file=<nom_fichier>")
+            print("Vous devez spécifier le fichier à modifier : file=<nom_fichier>")
             sys.exit(1)
 
         file_path = update_data["file"]
@@ -176,7 +218,7 @@ def main():
         elif file_path.lower().endswith(".flac"):
             audio = FlacFile(file_path)
         else:
-            print("❌ Format non supporté. Utilisez MP3 ou FLAC.")
+            print("Format non supporté. Utilisez MP3 ou FLAC.")
             sys.exit(1)
 
         audio.save_tags(
