@@ -4,7 +4,7 @@ import sys
 from Directory import Directory
 from Mp3File import Mp3File
 from FlacFile import FlacFile
-
+import os
 
 def main():
     parser = argparse.ArgumentParser(
@@ -67,30 +67,39 @@ def main():
         if args.output:
             try:
                 directory.generate_xspf_playlist(args.output)
-                print(f"🎵 Playlist enregistrée sous : {args.output}")
             except AttributeError:
                 print("⚠️ La méthode generate_xspf_playlist() n’est pas encore implémentée.")
 
-    # --- Cas 2 : Afficher les métadonnées ---
     elif args.file:
+        file_path = args.file
+        
+        if not os.path.exists(file_path):
+            print(f"❌ Erreur : Fichier non trouvé ou extension inconnue à ce chemin : {file_path}")
+            sys.exit(1)
+            
+        if not (file_path.lower().endswith(".mp3") or 
+                file_path.lower().endswith(".flac") ):
+                
+            
+            print(f"❌ Erreur : Extension non supportée pour l'affichage des métadonnées. Utilisez MP3, FLAC ou XSPF : {file_path}")
+            sys.exit(1)
+            
+        
         from Metadata import Metadata
-        meta = Metadata(args.file)
+        meta = Metadata(file_path)
         meta.display_tags()
         print("\n📥 Récupération des paroles...")
         meta.fetch_lyrics()
         
-        # 🎯 CORRECTION : Affichage simplifié des paroles
         try:
             if meta.lyrics:
                 meta.display_lyrics()
             else:
-                # Si fetch_lyrics a retourné False, n'a pas trouvé de paroles, ou erreur HTTP/réseau
                 print("✗ Les paroles n'ont pas été chargées.")
         
         except AttributeError:
-            # Gérer le cas où display_lyrics() est manquant (comme convenu)
             print("✗ Les paroles n'ont pas été chargées.")
-            
+
         # --- Cas 3 : Lire un fichier ou playlist ---
     elif args.play:
         path = args.play
@@ -138,7 +147,6 @@ def main():
                     print("❌ Format non supporté. Utilisez MP3, FLAC ou XSPF.")
                     sys.exit(1)
 
-                print(f"🎧 Lecture du fichier : {path}")
                 audio.play()
 
         except AttributeError:
