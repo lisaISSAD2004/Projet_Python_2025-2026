@@ -17,6 +17,8 @@ from typing import List
 import os
 import magic 
 from Metadata import Metadata
+from Mp3File import Mp3File 
+from FlacFile import FlacFile
 
 
 class Directory:
@@ -31,7 +33,7 @@ class Directory:
 
 
     def dir_exist(self):
-        """!
+        r"""!
         @brief Vérifie l'existence du dossier spécifié.
 
         @details Cette méthode utilise \c os.path.isdir pour confirmer si le chemin
@@ -60,13 +62,13 @@ class Directory:
         except Exception as e:
             print(f"Impossible de lire le type MIME pour {full_path}: {e}")
             return ""
-    
     def exploration_dir(self, path: str = None):
-        """!
+        r"""!
         @brief Explore récursivement le dossier et détecte uniquement les fichiers audio MP3/FLAC.
 
         @details Cette méthode est récursive. Pour chaque fichier audio compatible trouvé
-        ('audio/mpeg' ou 'audio/flac'), elle crée un objet \c Metadata et l'ajoute à la liste \c files.
+        (\c 'audio/mpeg' ou \c 'audio/flac'), elle crée un objet \c Mp3File ou \c FlacFile 
+        et l'ajoute à la liste \c self.files.
 
         @param path [in,out] Chemin (str) du dossier à explorer. Par défaut, utilise \c self.path.
         """
@@ -76,16 +78,27 @@ class Directory:
         try:
             for f in os.listdir(path):
                 full_path = os.path.join(path, f)
+                
                 if os.path.isdir(full_path):
                     # Appel récursif pour les sous-dossiers
                     self.exploration_dir(full_path)
+                    
                 elif os.path.isfile(full_path):
                     file_type = self.type_mime(full_path)
-                    if file_type in ('audio/mpeg', 'audio/flac'):
-                        # Crée un objet Metadata pour chaque fichier audio
-                        metadata = Metadata(full_path)
-                        self.files.append(metadata)
+                    audio_object = None # Initialisation de l'objet audio
+                    
+                    if file_type == 'audio/mpeg':
+                        # Crée un objet Mp3File
+                        audio_object = Mp3File(full_path)
+                    elif file_type == 'audio/flac':
+                        # Crée un objet FlacFile
+                        audio_object = FlacFile(full_path)
+                    
+                    if audio_object:
+                        # Ajoute l'objet spécifique à la liste
+                        self.files.append(audio_object)
                         print(f"Audio trouvé : {full_path} -> {file_type}")
+                        
         except Exception as e:
             print(f"Erreur lors de l'exploration de {path}: {e}")
 
