@@ -50,13 +50,14 @@ Application complète de gestion de fichiers musicaux MP3 et FLAC avec extractio
 
 ### 1. **Bibliothèques Python Utilisées**
 ```
-- customtkinter : Interface graphique moderne
-- tkinter : Widgets GUI de base
-- Pillow (PIL) : Manipulation d'images (covers)
-- mutagen : Lecture/écriture des tags MP3/FLAC
-- pygame : Lecture audio
-- requests : Appels API (iTunes, MusicBrainz, Lyrics.ovh)
-- xml.etree.ElementTree : Parsing/génération XSPF
+tkinter              # Widgets GUI de base
+Pillow (PIL)         # Manipulation d'images (covers)
+mutagen              # Lecture/écriture des tags MP3/FLAC
+pygame               # Lecture audio
+requests             # Appels API (iTunes, Lyrics.ovh)
+xml.etree.ElementTree # Parsing/génération XSPF
+argparse             # Gestion des arguments CLI
+threading            # Gestion de la lecture audio en arrière-plan
 ```
 
 ### 2. **Structure du Projet**
@@ -85,10 +86,8 @@ ACHAB_ISSAD_HACHANI/
 ```
 
 ### 3. **APIs Externes Intégrées**
-- **iTunes Search API** : Recherche de covers d'albums haute résolution
-- **MusicBrainz API** : Métadonnées complètes d'albums et d'artistes
-- **Cover Art Archive** : Récupération de covers alternatives
-- **Lyrics.ovh API** : Téléchargement automatique des paroles
+- ** iTunes Search API ** : Recherche de covers d'albums haute résolution (600x600)
+- ** Lyrics.ovh API **: Téléchargement automatique des paroles de chansons
 
 ## 🚀 Installation et Configuration
 
@@ -98,7 +97,7 @@ ACHAB_ISSAD_HACHANI/
 python3 --version
 
 # Installation des dépendances
-pip install customtkinter pillow mutagen pygame requests
+pip install pillow mutagen pygame requests
 ```
 
 ### 2. **Lancement du Mode Console (CLI)**
@@ -246,9 +245,3 @@ Pour toute question concernant le projet :
 ---
 
 *Projet réalisé dans le cadre du module Python - L3 Informatique - CY Cergy Paris Université - 2025/2026*
-
-
-
-
-
-
