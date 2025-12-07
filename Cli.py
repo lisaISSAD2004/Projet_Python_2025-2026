@@ -1,4 +1,4 @@
-r"""
+r"""!
 @file Cli.py
 @brief Interface en ligne de commande pour la gestion de fichiers audio MP3/FLAC.
 
