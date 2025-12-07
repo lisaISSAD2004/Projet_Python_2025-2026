@@ -86,8 +86,8 @@ ACHAB_ISSAD_HACHANI/
 ```
 
 ### 3. **APIs Externes Intégrées**
-- ** iTunes Search API ** : Recherche de covers d'albums haute résolution (600x600)
-- ** Lyrics.ovh API **: Téléchargement automatique des paroles de chansons
+- **iTunes Search API** : Recherche de covers d'albums haute résolution (600x600)
+- **Lyrics.ovh API**: Téléchargement automatique des paroles de chansons
 
 ## 🚀 Installation et Configuration
 
@@ -217,11 +217,6 @@ doxygen Doxyfile
 
 ## 🐛 Résolution de Problèmes
 
-### Erreur : "Module customtkinter not found"
-```bash
-pip install customtkinter
-```
-
 ### Erreur : "pygame.error: No available audio device"
 Vérifiez que votre système a un périphérique audio fonctionnel et que les pilotes sont à jour.
 
@@ -245,3 +240,9 @@ Pour toute question concernant le projet :
 ---
 
 *Projet réalisé dans le cadre du module Python - L3 Informatique - CY Cergy Paris Université - 2025/2026*
+
+
+
+
+
+
