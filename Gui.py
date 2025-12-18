@@ -1,911 +1,477 @@
-r"""!
-@file Gui.py
-@brief Interface graphique (GUI) basée sur Tkinter pour la gestion de fichiers audio.
-
-@details Fournit une interface complète permettant d'explorer des dossiers, d'afficher et de modifier
-les tags (métadonnées) des fichiers MP3 et FLAC, de gérer la pochette d'album via téléchargement iTunes,
-et d'assurer la lecture audio (morceau unique ou playlist) via \c pygame et \c threading.
-
-@section utils Fonctions Utilitaires
-* \c fetch_cover_from_itunes() : Recherche et télécharge une pochette depuis l'API iTunes.
-
-@section classes Classes Interagissant
-* \c Directory : Pour l'exploration de dossiers et la génération/lecture de playlists XSPF.
-* \c Metadata : Objet conteneur pour les tags et la durée d'un fichier.
-* \c Mp3File / \c FlacFile : Classes audio spécialisées pour la lecture et la sauvegarde des tags.
-
-@note L'initialisation de la lecture audio nécessite la librairie \c pygame et est gérée dans des threads séparés
-afin de ne pas bloquer l'interface Tkinter.
-"""
-import tkinter as tk
-from tkinter import filedialog, messagebox, ttk
 import os
-import requests
-import io
-from PIL import Image, ImageTk 
-from typing import List, Optional , Union
 import threading
-import xml.etree.ElementTree as ET
-import pygame
+from urllib.parse import unquote, urlparse
 import time
-from urllib.parse import quote
+import io
 
-# ============================================================
-# 🚨 ATTENTION : IMPORTS DES CLASSES EXTERNES 🚨
-# Assurez-vous que ces fichiers existent dans le même dossier.
-# ============================================================
-from Directory import Directory
-from Metadata import Metadata
-from Mp3File import Mp3File
-from FlacFile import FlacFile
+# Imports des autres couches
+from library.view.mainview import MainView
+from library.apis.audioservices import AudioService
+from library.apis.apiservices import ApiService
+from library.model.Directory import Directory
+from library.model.Mp3File import Mp3File
+from library.model.FlacFile import FlacFile
 
-
-# --- Dépendances Mutagen (conservées pour les fonctions hors classe) ---
-from mutagen.id3 import ID3, APIC 
-from requests.exceptions import RequestException
-from mutagen.easyid3 import EasyID3
-from mutagen.flac import FLAC, Picture
-from mutagen import File
-
-
-# ============================================================
-# FONCTIONS DE TÉLÉCHARGEMENT DE COVER
-# ============================================================
-def fetch_cover_from_itunes(artist: str, album: str) -> Optional[bytes]:
-    r"""!
-    @brief Recherche et télécharge une cover d'album depuis l'API iTunes.
-
-    @details Cherche d'abord l'album via l'artiste et le titre de l'album, puis
-    télécharge la version haute résolution de l'illustration (600x600).
-
-    @param artist [in] Nom (str) de l'artiste.
-    @param album [in] Nom (str) de l'album.
-    @return Optional[bytes] Les données binaires de l'image JPEG, ou \c None en cas d'échec ou de timeout.
-    """
-    if not artist or not album:
-        return None
-    
-    search_term = f"{artist} {album}"
-    url = "https://itunes.apple.com/search"
-    params = {
-        "term": search_term, "media": "music",
-        "entity": "album", "limit": 1
-    }
-    
-    try:
-        response = requests.get(url, params=params, timeout=5)
-        if response.status_code != 200: return None
-        data = response.json()
-        if data.get("resultCount", 0) == 0: return None
-        
-        artwork_url = data["results"][0].get("artworkUrl100")
-        if not artwork_url: return None
-        
-        artwork_url = artwork_url.replace("100x100", "600x600") 
-        img_response = requests.get(artwork_url, timeout=5)
-        
-        if img_response.status_code == 200:
-            return img_response.content
-        else:
-            return None
-            
-    except RequestException as e:
-        print(f"Erreur lors de la recherche iTunes : {e}")
-        return None
-
-# ============================================================
-# INTERFACE GRAPHIQUE TKINTER (CORRIGÉE)
-# ============================================================
-
-class Gui(tk.Tk):
-    r"""!
-    @class Gui
-    @brief Classe principale de l'interface graphique du gestionnaire musical.
-
-    @details Hérite de \c tk.Tk. Gère l'affichage des panneaux (Explorateur, Métadonnées, Playlist),
-    les événements utilisateur, et toute la logique de lecture audio via \c pygame et \c threading.
-
-    @var playlist
-    @details Liste (\c List) des objets \c Mp3File ou \c FlacFile actuellement dans la playlist.
-
-    @var current_directory
-    @details Instance \c Directory du dernier dossier exploré.
-
-    @var selected_file
-    @details Instance \c Metadata du fichier actuellement sélectionné dans l'explorateur.
-
-    @var is_playing_playlist
-    @details Booléen indiquant si la lecture d'une playlist est active.
-
-    @var playlist_thread
-    @details Référence au thread gérant la boucle de lecture de la playlist.
-    """
+class MainController:
     def __init__(self):
-        r"""!
-        @brief Constructeur. Initialise la fenêtre principale et la structure des panneaux.
+        # 1. Initialiser les Services
+        self.audio_service = AudioService()
+        self.api_service = ApiService()
 
-        @details Masque le panneau central de métadonnées au démarrage, tant qu'aucun fichier n'est sélectionné.
-        """
-        super().__init__()
-        self.playlist: List[Union['Mp3File', 'FlacFile']] = []
-        self.title("Gestionnaire Musical Simple (Tkinter)")
-        self.geometry("1000x600")
-        self.resizable(True, True) 
-        self.current_directory: Directory = None
-        self.selected_file: Metadata = None  # ← Garde les métadonnées
-        self.selected_audio_object = None 
-        self.cover_image_tk = None
-        self.is_playing_playlist: bool = False
-        self.playlist_thread: Optional[threading.Thread] = None
-        self.current_playlist_index: int = 0
-        self.grid_rowconfigure(1, weight=1)
-        self.grid_columnconfigure(0, weight=1)
+        # 2. Initialiser les Données (Modèle)
+        self.current_directory = None
+        self.selected_audio = None
+        self.playlist = []
 
-        # 1. Header 
-        header_frame = tk.Frame(self, padx=10, pady=10)
-        header_frame.grid(row=0, column=0, sticky="ew")
-        header_frame.grid_columnconfigure(0, weight=1)
-        
-        tk.Button(header_frame, text="Ouvrir Playlist", command=self.open_playlist).pack(side="right", padx=5)
-        tk.Button(header_frame, text="Ouvrir Dossier", command=self.open_directory).pack(side="right", padx=5)
-        
-        # 2. Contenu principal
-        main_content = tk.Frame(self)
-        main_content.grid(row=1, column=0, sticky="nsew", padx=10, pady=(0, 10))
-        main_content.grid_columnconfigure(0, weight=1)
-        main_content.grid_columnconfigure(1, weight=2)
-        main_content.grid_columnconfigure(2, weight=1)
-        main_content.grid_rowconfigure(0, weight=1)
+        self.is_paused = False
 
-        self.create_left_panel(main_content)
-        self.create_center_panel(main_content)
-        self.create_right_panel(main_content)
-        
-        # 🟢 MASQUER LE PANNEAU MÉTADONNÉES AU DÉMARRAGE
-        self.center_frame.grid_remove()
+        # 3. Initialiser la Vue
+        self.view = MainView(controller=self) 
 
-        # 3. Footer
-        self.footer_label = tk.Label(self, text="Prêt | 0 fichiers trouvés", anchor="w")
-        self.footer_label.grid(row=2, column=0, sticky="ew", padx=10, pady=5)
-        
+    def run(self):
+        """Lance l'application"""
+        self.view.mainloop()
 
-    # ============================================================
-    # PANNEAUX ET UI
-    # ============================================================
+    # ==========================
+    # GESTION DOSSIERS / FICHIERS
+    # ==========================
 
-    def create_left_panel(self, parent):
-        r"""!
-        @brief Crée le panneau d'exploration de fichiers (Liste des fichiers et filtre).
+    def handle_open_directory(self):
+        """Appelé par le bouton 'Ouvrir Dossier'"""
+        path = self.view.ask_directory()
+        if path:
+            self.load_directory(path)
 
-        @param parent [in] Le conteneur parent (\c tk.Frame).
-        """
-        frame = tk.LabelFrame(parent, text="Explorateur de Fichiers", padx=5, pady=5)
-        frame.grid(row=0, column=0, sticky="nsew", padx=(0, 10))
-        frame.grid_rowconfigure(1, weight=1)
-        frame.grid_columnconfigure(0, weight=1)
-        
-        tk.Label(frame, text="Filtrer:").grid(row=0, column=0, sticky="w", pady=(0, 5))
-        self.search_entry = tk.Entry(frame)
-        self.search_entry.grid(row=0, column=0, sticky="ew", padx=(50, 0), pady=(0, 5))
-        self.search_entry.bind("<KeyRelease>", self.filter_files)
+    def handle_drop_explorer(self, data):
+        """Appelé quand on lâche un dossier"""
+        paths = self._parse_dnd_paths(data)
+        if paths and os.path.isdir(paths[0]):
+            self.load_directory(paths[0])
 
-        scrollbar = tk.Scrollbar(frame)
-        scrollbar.grid(row=1, column=1, sticky="ns")
-        
-        self.file_listbox = tk.Listbox(frame, yscrollcommand=scrollbar.set, selectmode=tk.SINGLE)
-        self.file_listbox.grid(row=1, column=0, sticky="nsew")
-        self.file_listbox.bind('<<ListboxSelect>>', self.on_file_select)
-        
-        scrollbar.config(command=self.file_listbox.yview)
-
-    def create_center_panel(self, parent):
-        r"""!
-        @brief Crée le panneau central de métadonnées.
-
-        @details Stocke la référence du panneau principal dans \c self.center_frame pour l'affichage/masquage dynamique.
-
-        @param parent [in] Le conteneur parent (\c tk.Frame).
-        """
-        self.center_frame = tk.LabelFrame(parent, text="Métadonnées", padx=10, pady=5)
-        self.center_frame.grid(row=0, column=1, sticky="nsew", padx=10)
-        self.center_frame.grid_columnconfigure(0, weight=1)
-        
-        frame = self.center_frame
-        
-        canvas = tk.Canvas(frame)
-        canvas.pack(side="left", fill="both", expand=True)
-        scrollbar = tk.Scrollbar(frame, orient="vertical", command=canvas.yview)
-        scrollbar.pack(side="right", fill="y")
-        canvas.configure(yscrollcommand=scrollbar.set)
-        
-        self.meta_scroll_frame = tk.Frame(canvas)
-        canvas.create_window((0, 0), window=self.meta_scroll_frame, anchor="nw", width=450)
-        self.meta_scroll_frame.bind("<Configure>", lambda e: canvas.configure(scrollregion = canvas.bbox("all")))
-
-        # 1. 🖼️ ZONE DE COUVERTURE FIXE
-        cover_frame = tk.Frame(self.meta_scroll_frame, width=300, height=300)
-        cover_frame.pack(pady=10)
-        cover_frame.pack_propagate(False)
-        
-        self.cover_label = tk.Label(cover_frame, 
-                                    text="🖼\nCouverture d'album", 
-                                    bg="lightgray", 
-                                    relief=tk.RIDGE)
-        self.cover_label.pack(fill="both", expand=True)
-
-        
-        self.btn_download_cover = tk.Button(self.meta_scroll_frame, text="⬇ Télécharger Cover (iTunes)", 
-                                            command=self.download_and_save_cover)
-        self.btn_download_cover.pack(pady=5)
-        
-        # --- Champs d'Entrée ---
-        fields_frame = tk.Frame(self.meta_scroll_frame)
-        fields_frame.pack(fill="x", padx=10, pady=10)
-        fields_frame.grid_columnconfigure(1, weight=1)
-
-        labels_mapping = [
-            ("Titre", "title"),
-            ("Artiste", "artist"),
-            ("Album", "album"),
-            ("Année", "year"),
-            ("Durée", "duration"),
-            ("Genre", "genre")
-        ]
-        
-        self.entries = {}
-        
-        for i, (label_text, key) in enumerate(labels_mapping):
-            tk.Label(fields_frame, text=f"{label_text}:").grid(row=i, column=0, sticky="w", pady=5, padx=(0, 10))
-            entry = tk.Entry(fields_frame)
-            entry.grid(row=i, column=1, sticky="ew", pady=5)
-            self.entries[key] = entry
-            
-        self.entries['duration'].config(state='readonly')
-
-        self.btn_save_tags = tk.Button(self.meta_scroll_frame, 
-                                       text="💾 Sauvegarder les Tags Modifiés", 
-                                       command=self.save_metadata, 
-                                       bg="#5cb85c", fg="white")
-        self.btn_save_tags.pack(fill="x", padx=10, pady=10)
-
-
-       # --- Boutons de Lecture/Contrôle ---
-        self.btn_play_file = tk.Button(self.meta_scroll_frame, text="▷ Lire le Morceau", 
-                                       command=self.play_selected_file)
-        self.btn_play_file.pack(fill="x", padx=10, pady=5)
-        
-        self.btn_stop_file = tk.Button(self.meta_scroll_frame, text="⏹ Arrêter la Lecture", 
-                                       command=self.stop_playback) 
-        self.btn_stop_file.pack(fill="x", padx=10, pady=5)
-
-        self.btn_show_lyrics = tk.Button(self.meta_scroll_frame, 
-                                         text="🎤 Afficher les Paroles", 
-                                         command=self.show_lyrics)
-        self.btn_show_lyrics.pack(fill="x", padx=10, pady=5)
-
-
-    def create_right_panel(self, parent):
-        r"""!
-        @brief Crée le panneau de gestion de la playlist.
-
-        @param parent [in] Le conteneur parent (\c tk.Frame).
-        """
-        frame = tk.LabelFrame(parent, text="Playlist Actuelle", padx=5, pady=5)
-        frame.grid(row=0, column=2, sticky="nsew", padx=(10, 0))
-        frame.grid_rowconfigure(0, weight=1)
-        frame.grid_columnconfigure(0, weight=1)
-        
-        self.playlist_listbox = tk.Listbox(frame, selectmode=tk.EXTENDED)
-        self.playlist_listbox.grid(row=0, column=0, sticky="nsew", pady=5)
-        
-        btn_frame = tk.Frame(frame)
-        btn_frame.grid(row=1, column=0, sticky="ew")
-        
-        tk.Button(btn_frame, text="+ Ajouter", command=self.add_from_file_dialog).pack(side="left", expand=True, fill="x", padx=(0, 5))
-        tk.Button(btn_frame, text="- Retirer", command=self.remove_from_playlist).pack(side="left", expand=True, fill="x", padx=(5, 0))
-        tk.Button(btn_frame, text="💾 XSPF", command=self.save_playlist_dialog).pack(side="right", padx=5)
-        
-        tk.Button(btn_frame, text="▷ Lire", command=self.play_playlist).pack(side="left", expand=True, fill="x", padx=5)
-        tk.Button(btn_frame, text="⏭ Suivant", command=self.next_track).pack(side="right", expand=True, fill="x", padx=(5, 0))
-    
-    
-    # ============================================================
-    # MÉTHODES D'AFFICHAGE/MASQUAGE DU PANNEAU CENTRAL
-    # ============================================================
-    
-    def show_metadata_panel(self):
-        r"""!
-        @brief Affiche le panneau de métadonnées (\c self.center_frame).
-        """
-        self.center_frame.grid()
-
-    def hide_metadata_panel(self):
-        r"""!
-        @brief Masque le panneau de métadonnées (\c self.center_frame).
-        """
-        self.center_frame.grid_remove()
-
-
-    # ============================================================
-    # FONCTIONS DE LOGIQUE
-    # ============================================================
-
-    def open_directory(self):
-        r"""!
-        @brief Ouvre une boîte de dialogue pour sélectionner un dossier et lance l'exploration.
-        """
-        directory_path = filedialog.askdirectory(title="Sélectionner un dossier")
-        if not directory_path: return
-            
-        self.footer_label.config(text="Exploration en cours...")
-        self.update()
-        
-        self.current_directory = Directory(directory_path)
-        self.current_directory.exploration_dir()
-        
-        self.update_file_list()
-        
-    def filter_files(self, event=None):
-        r"""!
-        @brief Filtre la liste des fichiers de l'explorateur en fonction du texte entré.
-
-        @param event [in] Événement déclencheur (ignoré).
-        """
-        search_text = self.search_entry.get().lower()
-        self.file_listbox.delete(0, tk.END)
-        if not self.current_directory: return
-            
-        # 🚨 CORRECTION ICI
-        for audio_object in self.current_directory.files:
-            metadata = audio_object.metadata
-            
-            # Utiliser metadata.title, metadata.file_name, et metadata.artist
-            title = (metadata.title or metadata.file_name).lower()
-            artist = (metadata.artist or "").lower()
-            
-            if search_text in title or search_text in artist:
-                display_title = metadata.title or metadata.file_name
-                display_artist = metadata.artist or "Artiste inconnu"
-                self.file_listbox.insert(tk.END, f"{display_title} - {display_artist}")
-
-    def update_file_list(self):
-        r"""!
-        @brief Met à jour la Listbox de l'explorateur de fichiers.
-
-        @details Masque le panneau de métadonnées si la liste est vide après l'exploration.
-        """
-        self.search_entry.delete(0, tk.END)
-        self.file_listbox.delete(0, tk.END)
-        
-        if not self.current_directory or not self.current_directory.files:
-            self.hide_metadata_panel() 
-            self.footer_label.config(text="Prêt | 0 fichiers trouvés")
-            return
-
-        # 🚨 CORRECTION ICI
-        for audio_object in self.current_directory.files:
-            # Assurez-vous d'avoir l'objet Metadata
-            metadata = audio_object.metadata
-            
-            # Utiliser metadata.title et metadata.artist, et metadata.file_name
-            title = metadata.title or metadata.file_name
-            artist = metadata.artist or "Artiste inconnu"
-            self.file_listbox.insert(tk.END, f"{title} - {artist}")
-            
-        count = len(self.current_directory.files)
-        self.footer_label.config(text=f"Prêt | {count} fichiers trouvés")
-
-    def on_file_select(self, event):
-        r"""!
-        @brief Gère la sélection d'un fichier dans la Listbox de l'explorateur.
-
-        @details Affiche le panneau de métadonnées et appelle \c display_metadata().
-
-        @param event [in] Événement de sélection de Listbox.
-        """
-        selected_indices = self.file_listbox.curselection()
-        if not selected_indices: 
-            return
-            
-        index = selected_indices[0]
-        
-        search_text = self.search_entry.get().lower()
-        filtered_files = []
-        
-        for audio_object in self.current_directory.files:
-            metadata = audio_object.metadata
-            title = (metadata.title or metadata.file_name).lower()
-            artist = (metadata.artist or "").lower()
-            if search_text in title or search_text in artist:
-                filtered_files.append(audio_object)
-        
-        if index < len(filtered_files):
-            # ✅ STOCKER L'OBJET AUDIO ET LES MÉTADONNÉES SÉPARÉMENT
-            self.selected_audio_object = filtered_files[index]
-            self.selected_file = self.selected_audio_object.metadata
-            self.show_metadata_panel() 
-            self.display_metadata(self.selected_file)
-
-    def display_metadata(self, metadata: Metadata):
-        r"""!
-        @brief Affiche les métadonnées et la pochette du fichier sélectionné dans le panneau central.
-
-        @param metadata [in] L'objet \c Metadata à afficher.
-        """
-        self.selected_file = metadata
-        if not metadata: return
-            
-        # Remplir les champs
-        for key, entry in self.entries.items():
-            value = getattr(metadata, key, "") 
-            
-            entry.config(state='normal')
-            entry.delete(0, tk.END)
-            entry.insert(0, str(value or ""))
-            if key == 'duration': 
-                entry.config(state='readonly')
-        
-        # Gérer la Cover
-        self.cover_label.config(image="", text="🖼\nCouverture d'album", bg="lightgray")
-        if metadata.cover:
-            try:
-                metadata.cover.seek(0)
-                img = Image.open(metadata.cover).resize((300, 300))
-                self.cover_image_tk = ImageTk.PhotoImage(img)
-                self.cover_label.config(image=self.cover_image_tk, text="", bg="white")
-            except Exception:
-                self.cover_image_tk = None
-
-
-    def save_metadata(self):
-        r"""!
-        @brief Récupère les tags modifiés des champs d'entrée et les sauvegarde dans le fichier audio.
-        """
-        if not self.selected_audio_object:  # ✅ UTILISER selected_audio_object
-            messagebox.showinfo("Info", "Aucun fichier sélectionné.")
-            return
-
-        new_tags = {}
-        for key, entry in self.entries.items():
-            if key != 'duration':
-                new_tags[key] = entry.get()
-
+    def load_directory(self, path):
+        """Logique commune pour charger un dossier"""
+        print(f"Controller: Chargement dossier -> {path}")
         try:
-            # ✅ Appeler save_tags sur l'objet audio
-            if self.selected_audio_object.save_tags(**new_tags):
-                
-                # Recharger les métadonnées
-                self.selected_audio_object.extract_metadata()
-                self.selected_file = self.selected_audio_object.metadata
-                
-                self.update_file_list()
-                self.display_metadata(self.selected_file)
-                
-                messagebox.showinfo("Succès", "Métadonnées sauvegardées avec succès.")
-            else:
-                messagebox.showerror("Erreur", "La sauvegarde des métadonnées a échoué.")
-        
+            self.current_directory = Directory(path)
+            self.current_directory.exploration_dir()
+            self.view.update_file_list(self.current_directory.files)
+            self.view.update_footer(f"Prêt | {len(self.current_directory.files)} fichiers trouvés")
         except Exception as e:
-            messagebox.showerror("Erreur", f"Impossible de sauvegarder: {e}")
+            self.view.show_message("Erreur", f"Impossible d'ouvrir ce dossier: {e}", is_error=True)
 
-    def download_and_save_cover(self):
-        r"""!
-        @brief Télécharge la pochette depuis iTunes et demande à l'utilisateur de la sauvegarder.
-        """
-        if not self.selected_audio_object:  # ✅ UTILISER selected_audio_object
-            messagebox.showinfo("Info", "Veuillez sélectionner un fichier d'abord.")
-            return
-            
-        artist = self.entries['artist'].get().strip() 
-        album = self.entries['album'].get().strip()
+    def handle_file_select(self, audio_object):
+        """Appelé quand on clique sur une musique"""
+        self.selected_audio = audio_object
+        self.view.display_metadata(audio_object.metadata)
 
-        if not artist or not album:
-            messagebox.showwarning("Attention", "Veuillez renseigner l'artiste et l'album.")
-            return
+    # ==========================
+    # LECTURE AUDIO
+    # ==========================
 
-        self.btn_download_cover.config(text="Recherche en cours...", state=tk.DISABLED)
-        self.update()
+    # Dans controler/maincontroler.py
 
-        def fetch_in_thread():
-            cover_data = fetch_cover_from_itunes(artist, album)
-            self.after(0, lambda: self._handle_cover_result(cover_data))
-
-        threading.Thread(target=fetch_in_thread, daemon=True).start()
-
-    def _handle_cover_result(self, cover_data):
-        r"""!
-        @brief Gestionnaire post-thread pour le résultat du téléchargement de la cover.
-
-        @details Affiche l'image trouvée et propose sa sauvegarde dans le fichier audio et le dossier local.
-
-        @param cover_data [in] Les données binaires (bytes) de l'image, ou \c None.
-        """
-        self.btn_download_cover.config(text="⬇ Télécharger Cover (iTunes)", state=tk.NORMAL)
-
-        if not cover_data:
-            messagebox.showwarning("Info", "Aucune cover trouvée en ligne.")
-            return
+    def handle_play(self):
+        """Gère le bouton Play/Pause intelligemment"""
         
-        try:
-            img = Image.open(io.BytesIO(cover_data)).resize((300, 300))
-            self.cover_image_tk = ImageTk.PhotoImage(img)
-            self.cover_label.config(image=self.cover_image_tk, text="", bg="white")
-
-            if messagebox.askyesno("Confirmation", "Cover trouvée! Voulez-vous la sauvegarder?"):
-                
-                # ✅ UTILISER selected_audio_object pour sauvegarder
-                if self.selected_audio_object.save_cover(cover_data):
-                
-                    # Sauvegarder aussi dans le dossier
-                    album_dir = os.path.dirname(self.selected_audio_object.path)
-                    cover_path = os.path.join(album_dir, "cover.jpg")
-                    with open(cover_path, "wb") as f:
-                        f.write(cover_data)
-                        
-                    # Recharger les métadonnées
-                    self.selected_audio_object.extract_metadata()
-                    self.selected_file = self.selected_audio_object.metadata
-                    self.display_metadata(self.selected_file)
-                    messagebox.showinfo("Succès", "Cover sauvegardée avec succès!")
-                else:
-                    messagebox.showerror("Erreur", "Échec de la sauvegarde de la cover.")
+        # CAS 1 : On est en PAUSE -> On REPREND
+        if self.is_paused:
+            self.audio_service.unpause()
+            self.is_paused = False
+            self.view.update_play_button("⏸", "#D32F2F")
             
-        except Exception as e:
-            messagebox.showerror("Erreur", f"Impossible de traiter la cover: {e}")
-
-    def play_selected_file(self):
-        r"""!
-        @brief Lit le morceau sélectionné.
-
-        @details Arrête toute lecture en cours, puis lance la lecture du fichier
-        en utilisant la méthode \c play() dans un thread séparé.
-        """
-        if not self.selected_audio_object:  # ✅ UTILISER selected_audio_object
-            messagebox.showinfo("Info", "Aucun fichier sélectionné.")
-            return
-            
-        self.stop_playback(silent=True) 
-        threading.Thread(target=self.selected_audio_object.play, daemon=True).start()
-        
-        title = self.selected_file.title or self.selected_file.file_name
-        self.footer_label.config(text=f"▶ Lecture en cours : {title}")
-
-    def stop_playback(self, silent: bool = False):
-        r"""!
-        @brief Arrête immédiatement toute lecture audio en cours (morceau ou playlist).
-
-        @details Utilise \c pygame.mixer.music.stop(). Réinitialise l'état de la lecture de playlist.
-
-        @param silent [in] Booléen. Si \c True, ne montre pas de message d'information ou d'arrêt.
-        """
-        if pygame and pygame.mixer.get_init():
-            pygame.mixer.music.stop()
-            self.is_playing_playlist = False
-            self.playlist_thread = None
-            if not silent:
-                 self.footer_label.config(text="⏹ Lecture arrêtée.")
-        elif not silent:
-            messagebox.showinfo("Info", "Aucune lecture audio en cours.")
-
-    def play_playlist(self):
-        r"""!
-        @brief Lance la lecture de la playlist en série dans un thread dédié.
-        """
-        if not self.playlist:
-            messagebox.showinfo("Info", "La playlist est vide.")
+            # --- AJOUT IMPORTANT : ON RELANCE LE COMPTEUR ! ---
+            self.check_time_loop()
+            # --------------------------------------------------
             return
 
-        self.stop_playback(silent=True) 
-        
-        self.current_playlist_index = 0
-        self.is_playing_playlist = True
-        
-        self.playlist_thread = threading.Thread(target=self._playlist_playback_loop, daemon=True)
-        self.playlist_thread.start()
-        self.footer_label.config(text="▶ Démarrage de la playlist...")
-
-    def _playlist_playback_loop(self):
-        r"""!
-        @brief Boucle de lecture de playlist exécutée dans un thread séparé.
-        """
-        while self.is_playing_playlist and self.current_playlist_index < len(self.playlist):
-            audio_object = self.playlist[self.current_playlist_index]
-            meta = audio_object.metadata
-            
-            self.after(0, lambda m=meta: self.footer_label.config(
-                text=f"▶ Playlist ({self.current_playlist_index+1}/{len(self.playlist)}) : {m.title or m.file_name}"))
-
-            file_path = audio_object.path
-            
-            try:
-                audio_instance = audio_object
-                audio_instance.play(wait_for_end=False)
-            except Exception as e:
-                print(f"Erreur de lecture pour {file_path}: {e}")
-                self.current_playlist_index += 1
-                continue
-
-            index_before_wait = self.current_playlist_index
-            while pygame.mixer.music.get_busy() and self.is_playing_playlist:
-                time.sleep(0.1) 
-            
-            if not self.is_playing_playlist:
-                break
-                
-            if not pygame.mixer.music.get_busy() and self.current_playlist_index == index_before_wait:
-                self.current_playlist_index += 1
-        
-        if self.current_playlist_index >= len(self.playlist) and self.is_playing_playlist:
-            self.after(0, lambda: self.footer_label.config(text="Fin de la playlist. 🏁"))
-
-        self.is_playing_playlist = False
-        self.playlist_thread = None
-
-    def next_track(self):
-        r"""!
-        @brief Force l'arrêt du morceau en cours et passe immédiatement au morceau suivant de la playlist.
-        """
-        if not self.is_playing_playlist:
-            messagebox.showinfo("Info", "Aucune playlist en cours de lecture.")
+        # CAS 2 : La musique JOUE -> On met en PAUSE
+        if self.audio_service.is_playing():
+            self.audio_service.pause()
+            self.is_paused = True
+            self.view.update_play_button("▶", "#E040FB")
+            # Ici, la boucle check_time_loop va s'arrêter toute seule au prochain tour
             return
 
-        if pygame and pygame.mixer.get_init():
-            pygame.mixer.music.stop()
+        # CAS 3 : Rien ne joue -> On LANCE du début
+        if self.selected_audio:
+            self._start_new_song(self.selected_audio.path)
+
+    def check_time_loop(self):
+        """Met à jour le temps chaque seconde"""
+        if self.audio_service.is_playing() and self.selected_audio:
+            # 1. Temps actuel (vient de pygame en secondes)
+            current_sec = self.audio_service.get_current_position()
             
-        self.current_playlist_index += 1
+            # 2. Durée totale (Le correctif est ici)
+            raw_duration = self.selected_audio.metadata.duration
+            total_sec = self._parse_duration(raw_duration)
+            
+            # Formater pour l'affichage (ex: "01:05" / "04:57")
+            cur_fmt = self._format_time(current_sec)
+            tot_fmt = self._format_time(total_sec)
+            
+            # Mettre à jour la vue (Titre/Artiste optionnels ici si déjà mis à jour par handle_play)
+            # On met juste à jour le label du temps via update_timer_label si vous l'avez créé
+            # Sinon on utilise update_footer
+            self.view.update_footer(f"{cur_fmt} / {tot_fmt}", 
+                                    title=self.selected_audio.metadata.title, 
+                                    artist=self.selected_audio.metadata.artist)
+            
+            # Rappeler dans 1 seconde
+            self.view.after(1000, self.check_time_loop)
+
+    def handle_add_single_to_playlist(self, audio_obj):
+        """Ajoute un seul fichier à la playlist (via clic droit)"""
+        if not audio_obj: return
         
-        if self.current_playlist_index >= len(self.playlist):
-            self.is_playing_playlist = False
-            self.after(0, lambda: self.footer_label.config(text="Fin de la playlist. 🏁"))
+        # On évite les doublons exacts si on veut (optionnel)
+        if audio_obj not in self.playlist:
+            self.playlist.append(audio_obj)
+            self.view.update_playlist_view(self.playlist)
+            self.view.update_footer(f"Ajouté à la playlist : {audio_obj.metadata.title}")
         else:
-            self.after(0, lambda: self.footer_label.config(text="⏭ Morceau suivant..."))
+            self.view.show_message("Info", "Ce titre est déjà dans la playlist.")
 
-    def add_to_playlist(self, metadata: Metadata):
-        r"""!
-        @brief Ajoute un objet Metadata à la playlist (si non déjà présent) et met à jour l'affichage.
-
-        @param metadata [in] L'objet \c Metadata à ajouter.
-        """
-        if metadata not in self.playlist:
-            self.playlist.append(metadata)
-            self.update_playlist_display()
             
-    def add_from_file_dialog(self):
-        r"""!
-        @brief Ouvre un dialogue pour ajouter des fichiers MP3/FLAC à la playlist.
-        """
-        file_paths = filedialog.askopenfilenames(
-             title="Ajouter des fichiers à la playlist",
-             filetypes=[("Fichiers audio supportés", "*.mp3 *.flac")]
-         )
+    def handle_stop(self):
+        self.audio_service.stop()
+        self.is_paused = False # Reset important
+        self.view.update_footer("Arrêté")
+
+    # ==========================
+    # SAUVEGARDE & API
+    # ==========================
+
+    def handle_save_tags(self, tags_dict):
+        """Appelé par le bouton 'Sauvegarder Tags'"""
+        if not self.selected_audio: return
+
+        # 1. Arrêter la musique pour libérer le fichier
+        self.audio_service.stop()
+
+        # 2. Sauvegarder via le Modèle
+        if self.selected_audio.save_tags(**tags_dict):
+            # 3. Recharger les infos pour vérifier
+            self.selected_audio.extract_metadata()
+            self.view.display_metadata(self.selected_audio.metadata)
+            
+            # 4. Mettre à jour la liste à gauche (si le titre a changé)
+            self.view.update_file_list(self.current_directory.files)
+            self.view.show_message("Succès", "Tags sauvegardés avec succès.")
+        else:
+            self.view.show_message("Erreur", "Échec de la sauvegarde.", is_error=True)
+
+    def handle_download_cover(self):
+        """Appelé par le bouton 'Télécharger Cover'"""
+        if not self.selected_audio: return
+
+        # Récupérer les infos actuelles de la vue (ou du modèle)
+        entries = self.view.get_entry_values()
+        artist = entries.get('artist')
+        album = entries.get('album')
+
+        # Lancer la recherche dans un thread pour ne pas figer l'interface
+        threading.Thread(target=self._thread_download_cover, args=(artist, album), daemon=True).start()
+
+    def _thread_download_cover(self, artist, album):
+        # Appel API
+        data = self.api_service.fetch_cover_hybrid(artist, album)
         
-        if not file_paths: return
+        # Mise à jour de la vue (Attention: certaines libs UI n'aiment pas être appelées depuis un thread)
+        # Mais customtkinter gère ça relativement bien. Sinon utiliser self.view.after
+        if data:
+            # On demande à la vue d'afficher une confirmation ou l'image
+            # Pour simplifier ici, on sauvegarde direct si l'utilisateur valide dans la vue
+            # Note: Dans une architecture pure, le thread devrait renvoyer l'info au main thread.
+            
+            # Hack simple pour mettre à jour l'image sans confirmation complexe ici:
+            self.audio_service.stop()
+            if self.selected_audio.save_cover(data):
+                self.selected_audio.extract_metadata()
+                self.view.display_metadata(self.selected_audio.metadata)
+                self.view.show_message("Info", "Cover trouvée et sauvegardée !")
+        else:
+            self.view.show_message("Info", "Aucune cover trouvée.")
+
+    # ==========================
+    # UTILITAIRES
+    # ==========================
+    def _parse_dnd_paths(self, data):
+        if data.startswith('file://'):
+            if '\r\n' in data: raw_paths = data.split('\r\n')
+            else: raw_paths = data.split('\n')
+            return [unquote(urlparse(p).path).strip() for p in raw_paths if p.strip()]
+        return self.view.tk.splitlist(data)
+    
+    def _parse_duration(self, raw):
+        """Transforme n'importe quel format (str '04:57', str '297', float 297.5) en secondes (float)"""
+        if not raw: 
+            return 0
         
-        added_count = 0
-        failed_files = []
-        
-        for path in file_paths:
+        # Cas 1 : C'est déjà un nombre (int ou float)
+        if isinstance(raw, (int, float)):
+            return float(raw)
+            
+        # Cas 2 : C'est du texte (str)
+        if isinstance(raw, str):
+            # Si c'est formaté comme "04:57"
+            if ":" in raw:
+                try:
+                    parts = raw.split(":")
+                    # minutes * 60 + secondes
+                    return int(parts[0]) * 60 + int(parts[1])
+                except:
+                    return 0
+            # Si c'est juste un nombre en texte "297"
             try:
-                if path.lower().endswith(".mp3"):
-                    audio_object = Mp3File(path)
-                elif path.lower().endswith(".flac"):
-                    audio_object = FlacFile(path)
-                else:
-                    continue
+                return float(raw)
+            except:
+                return 0
                 
-                self.playlist.append(audio_object)
-                added_count += 1
-            except Exception as e:
-                failed_files.append(os.path.basename(path))
-                print(f"Erreur lors du traitement de {path}: {e}")
+        return 0
+    # ----------------------------------------------
+    
+    def _format_time(self, seconds):
+        # ... (votre fonction existante reste identique) ...
+        if not seconds: return "00:00"
+        try:
+            seconds = float(seconds)
+            m = int(seconds // 60)
+            s = int(seconds % 60)
+            return f"{m:02d}:{s:02d}"
+        except:
+            return "00:00"
         
-        self.update_playlist_display()
+    # ==========================
+    # GESTION PAROLES
+    # ==========================
+    def handle_show_lyrics(self):
+        if not self.selected_audio: return
         
-        if added_count > 0:
-            messagebox.showinfo("Playlist", f"✅{added_count} fichier(s) ajouté(s) à la playlist.")
-        
-        if failed_files:
-            messagebox.showwarning("Avertissement", 
-                                   f" {len(failed_files)} fichier(s) n'a/ont pas pu être ajouté(s) : " +
-                                   ", ".join(failed_files))
-            
-    def remove_from_playlist(self):
-        r"""!
-        @brief Retire les éléments sélectionnés de la Listbox de la playlist.
-        """
-        selected_indices = self.playlist_listbox.curselection()
-        if not selected_indices:
-            messagebox.showinfo("Info", "Veuillez sélectionner un morceau à retirer.")
-            return
+        meta = self.selected_audio.metadata
+        # On lance le thread
+        threading.Thread(target=self._thread_lyrics, 
+                         args=(meta.artist, meta.title, meta.album, meta.duration), 
+                         daemon=True).start()
 
-        for index in reversed(selected_indices):
+    def _thread_lyrics(self, artist, title, album, duration):
+        dur_sec = int(duration) if isinstance(duration, (int, float)) else None
+        data = self.api_service.fetch_lyrics_logic(artist, title, album, dur_sec)
+        
+        if data:
+            text = data.get("syncedLyrics") or data.get("plainLyrics")
+            if text:
+                # Affichage dans la vue (via after pour thread-safety si besoin, mais customtkinter gère souvent)
+                self.view.show_lyrics_window(text)
+            else:
+                self.view.show_message("Info", "Titre trouvé mais pas de texte.")
+        else:
+            self.view.show_message("Info", "Paroles introuvables.")
+
+    # ==========================
+    # GESTION PLAYLIST
+    # ==========================
+    def handle_add_playlist_files(self):
+        paths = self.view.ask_open_filenames()
+        if not paths: return
+        
+        self._add_paths_to_playlist(paths)
+
+    def handle_drop_playlist(self, data):
+        paths = self._parse_dnd_paths(data)
+        self._add_paths_to_playlist(paths)
+
+    def _add_paths_to_playlist(self, paths):
+        count = 0
+        for p in paths:
+            if os.path.isfile(p):
+                try:
+                    if p.lower().endswith(".mp3"):
+                        self.playlist.append(Mp3File(p))
+                        count += 1
+                    elif p.lower().endswith(".flac"):
+                        self.playlist.append(FlacFile(p))
+                        count += 1
+                except: pass
+        
+        if count > 0:
+            self.view.update_playlist_view(self.playlist)
+            self.view.update_footer(f"{count} titres ajoutés à la playlist.")
+
+    def handle_remove_playlist_item(self, index):
+        if 0 <= index < len(self.playlist):
             del self.playlist[index]
+            self.view.update_playlist_view(self.playlist)
 
-        self.update_playlist_display()
-        
-    def update_playlist_display(self):
-        r"""!
-        @brief Met à jour la Listbox de la playlist pour refléter le contenu de \c self.playlist.
-        """
-        self.playlist_listbox.delete(0, tk.END)
-        
-        for idx, audio_object in enumerate(self.playlist):
-            
-            if hasattr(audio_object, 'metadata') and audio_object.metadata is not None:
-                meta = audio_object.metadata
-                
-                title = meta.title or meta.file_name 
-                artist = meta.artist or "Artiste inconnu"
-                
-                self.playlist_listbox.insert(tk.END, f"{idx+1}. {title} - {artist}")
-            else:
-                path = getattr(audio_object, 'path', 'Fichier inconnu')
-                self.playlist_listbox.insert(tk.END, f"{idx+1}. ⚠️ Erreur d'extraction : {os.path.basename(path)}")
-                
-    def open_playlist(self):
-        r"""!
-        @brief Ouvre un dialogue pour charger une playlist XSPF et peuple \c self.playlist.
-        """
-        filename = filedialog.askopenfilename(
-            title="Ouvrir une playlist",
-            filetypes=[("XSPF Playlist", ".xspf"), ("Tous les fichiers", ".*")]
-        )
-        
-        if not filename: return
-        
-        try:
-            ns = {'xspf': 'http://xspf.org/ns/0/'}
-            tree = ET.parse(filename)
-            root = tree.getroot()
-            self.playlist.clear()
-            
-            loaded_count = 0
-            for track in root.findall('.//xspf:track', ns):
-                location = track.find('xspf:location', ns)
-                if location is not None:
-                    file_path = location.text.replace('file://', '')
-                    
-                    if os.path.exists(file_path):
-                        if file_path.lower().endswith(".mp3"):
-                            metadata = Mp3File(file_path)
-                        elif file_path.lower().endswith(".flac"):
-                            metadata = FlacFile(file_path)
-                        else:
-                            continue
-                            
-                        self.playlist.append(metadata)
-                        loaded_count += 1
-            
-            self.update_playlist_display()
-            messagebox.showinfo("Succès", f"Playlist chargée: {loaded_count} morceaux ajoutés.")
-            
-        except Exception as e:
-            messagebox.showerror("Erreur", f"Impossible d'ouvrir la playlist: {e}")
-
-    def save_playlist_dialog(self):
-        r"""!
-        @brief Ouvre un dialogue pour sauvegarder \c self.playlist au format XSPF.
-        """
+    def handle_save_playlist(self):
+        """Sauvegarde la playlist actuelle au format XSPF"""
         if not self.playlist:
-            messagebox.showwarning("Attention", "La playlist est vide.")
+            self.view.show_message("Info", "La playlist est vide.")
             return
-        
-        filename = filedialog.asksaveasfilename(
-            defaultextension=".xspf",
-            filetypes=[("XSPF Playlist", ".xspf"), ("Tous les fichiers", ".*")]
-        )
-        
-        if not filename: return
-            
+
+        # 1. Demander où sauvegarder
+        path = self.view.ask_save_filename()
+        if not path: return
+
         try:
+            # 2. Utiliser la classe Directory pour générer le XML
+            # On crée une instance temporaire juste pour utiliser sa méthode de génération
             temp_dir = Directory(".") 
-            temp_dir.files = self.playlist
-            temp_dir.generate_xspf_playlist(filename)
+            temp_dir.files = self.playlist # On lui donne notre liste de lecture
             
-            messagebox.showinfo("Succès", f"Playlist sauvegardée: {filename}")
+            # 3. Générer le fichier
+            temp_dir.generate_xspf_playlist(path)
+            
+            self.view.show_message("Succès", f"Playlist sauvegardée dans :\n{path}")
+            
         except Exception as e:
-            messagebox.showerror("Erreur", f"Impossible de sauvegarder: {e}")
+            print(f"Erreur sauvegarde playlist : {e}")
+            self.view.show_message("Erreur", f"Impossible de sauvegarder la playlist.\n{e}", is_error=True)
 
-    def _display_lyrics_window(self, title: str, lyrics: str):
-        r"""!
-        @brief Ouvre une fenêtre secondaire pour afficher les paroles.
+    # ==========================
+    # LECTURE PLAYLIST
+    # ==========================
+    def handle_play_playlist(self):
+        if not self.playlist: return
+        
+        self.audio_service.stop()
+        self.is_playing_playlist = True
+        self.current_playlist_index = 0
+        
+        # On lance la boucle de lecture dans un thread
+        threading.Thread(target=self._playlist_loop, daemon=True).start()
 
-        @param title [in] Titre (str) du morceau (pour le titre de la fenêtre).
-        @param lyrics [in] Texte (str) des paroles à afficher.
-        """
-        top = tk.Toplevel(self)
-        top.title(f"Paroles : {title}")
-        top.geometry("600x450")
-        
-        scrollbar = tk.Scrollbar(top)
-        scrollbar.pack(side="right", fill="y")
-        
-        text_widget = tk.Text(top, yscrollcommand=scrollbar.set, wrap="word", font=("Arial", 10))
-        text_widget.insert(tk.END, lyrics)
-        text_widget.config(state="disabled") # Lecture seule
-        text_widget.pack(side="left", fill="both", expand=True, padx=10, pady=10)
-        
-        scrollbar.config(command=text_widget.yview)
+    def handle_next_track(self):
+        """Passe à la chanson suivante"""
+        if not self.is_playing_playlist: return
+        # On arrête le son, ce qui débloque la boucle et passe au suivant (+1)
+        self.audio_service.stop()
 
-    def _fetch_lyrics_worker(self, metadata: 'Metadata'):
-        r"""!
-        @brief Fonction worker (exécutée dans un thread) pour récupérer les paroles via API (lyrics.ovh).
+    # --- C'EST CETTE FONCTION QUI MANQUAIT ---
+    def handle_prev_track(self):
+        """Passe à la chanson précédente"""
+        if not self.is_playing_playlist or not self.playlist: return
 
-        @param metadata [in] L'objet \c Metadata contenant l'artiste et le titre.
-        """
-        artist = metadata.artist
-        title = metadata.title
-        lyrics = None
+        # EXPLICATION MATHÉMATIQUE :
+        # La boucle _playlist_loop fait "index + 1" dès que le son s'arrête.
+        # Si on est à la chanson 5 et qu'on veut la 4 :
+        # On règle l'index sur 3.
+        # On stoppe le son.
+        # La boucle reprend, fait 3 + 1 = 4.
+        # La chanson 4 se lance.
         
-        if not artist or not title:
-            self.after(0, lambda: messagebox.showwarning("Paroles", "⚠ Artiste ou titre manquant pour rechercher les paroles."))
-            return
+        self.current_playlist_index -= 2
+        
+        # Gestion des limites (si on est au début, on va à la fin)
+        if self.current_playlist_index < -1:
+            self.current_playlist_index = len(self.playlist) - 2
+
+        # On force l'arrêt pour déclencher le changement
+        self.audio_service.stop()
+
+    def _playlist_loop(self):
+        while self.is_playing_playlist and self.current_playlist_index < len(self.playlist):
+            audio = self.playlist[self.current_playlist_index]
             
-        url = f"https://api.lyrics.ovh/v1/{quote(artist)}/{quote(title)}"
+            # Mise à jour de l'interface
+            meta = audio.metadata
+            self.view.update_footer(f"Playlist {self.current_playlist_index+1}/{len(self.playlist)}", 
+                                    title=meta.title, 
+                                    artist=meta.artist)
+            
+            # --- AJOUT IMPORTANT ICI ---
+            self.is_paused = False # On réinitialise la pause car c'est une nouvelle chanson
+            # ---------------------------
+
+            self.audio_service.play(audio.path)
+            
+            # Petit délai pour laisser le temps à pygame de lancer le statut "busy"
+            time.sleep(1)
+            
+            # Attente active (tant que la musique joue OU qu'elle est en pause)
+            # Si on ne vérifie pas self.is_paused, la boucle passerait à la suite dès qu'on met pause !
+            while (self.audio_service.is_playing() or self.is_paused) and self.is_playing_playlist:
+                time.sleep(0.5)
+            
+            # Passage au suivant (seulement si on n'a pas stoppé brutalement)
+            if self.is_playing_playlist:
+                self.current_playlist_index += 1
         
+        self.is_playing_playlist = False
+        self.view.update_footer("Fin de la playlist.")
+        # On remet le bouton visuellement sur Play
+        self.view.update_play_button("▶", "#E040FB")
+
+    def handle_rename_file(self):
+        """Renomme le fichier physique et met à jour l'interface"""
+        if not self.selected_audio: return
+
+        new_name = self.view.get_filename_input()
+        if not new_name: return
+
+        # On s'assure que l'extension est là (ex: .mp3)
+        old_path = self.selected_audio.path
+        extension = os.path.splitext(old_path)[1]
+        
+        if not new_name.lower().endswith(extension.lower()):
+            new_name += extension
+
+        # Construction du nouveau chemin complet
+        directory = os.path.dirname(old_path)
+        new_path = os.path.join(directory, new_name)
+
+        if new_path == old_path: return # Pas de changement
+
+        # 1. Arrêter la lecture (CRUCIAL pour éviter les crashs)
+        self.audio_service.stop()
+
         try:
-            resp = requests.get(url, timeout=10)
-            resp.raise_for_status() 
-
-            if resp.status_code == 200:
-                data = resp.json()
-                if 'lyrics' in data:
-                    lyrics = data['lyrics']
-        
-        except requests.exceptions.Timeout:
-            self.after(0, lambda: messagebox.showerror("Erreur Paroles", "✗ Le temps d'attente a été dépassé."))
-        except requests.exceptions.ConnectionError:
-            self.after(0, lambda: messagebox.showerror("Erreur Paroles", "✗ Impossible de se connecter à l'hôte."))
-        except requests.exceptions.HTTPError as e:
-            self.after(0, lambda: messagebox.showwarning("Paroles", f"✗ Paroles introuvables (Erreur HTTP {e.response.status_code})."))
-        except requests.exceptions.RequestException:
-            self.after(0, lambda: messagebox.showerror("Erreur Paroles", "✗ Problème lors de la requête HTTP."))
-        except Exception as e:
-            self.after(0, lambda: messagebox.showerror("Erreur Paroles", f"✗ Erreur inattendue : {e}"))
-        
-        self.after(0, lambda: self._handle_lyrics_result(metadata, lyrics))
-
-
-    def _handle_lyrics_result(self, metadata: 'Metadata', lyrics: Optional[str]):
-        r"""!
-        @brief Gère le résultat de la recherche de paroles (sur le thread principal).
-
-        @details Affiche les paroles dans une nouvelle fenêtre ou affiche un message si elles sont introuvables.
-
-        @param metadata [in] L'objet \c Metadata original.
-        @param lyrics [in] Le texte (str) des paroles, ou \c None si non trouvé.
-        """
-        self.btn_show_lyrics.config(text="🎤 Afficher les Paroles", state=tk.NORMAL)
-        
-        if lyrics:
-            self._display_lyrics_window(metadata.title or metadata.file_name, lyrics)
-        else:
-            messagebox.showinfo("Paroles", f"Aucune parole trouvée pour {metadata.artist} - {metadata.title}.")
-
-    def show_lyrics(self):
-        r"""!
-        @brief Lance la récupération des paroles dans un thread au clic du bouton.
-
-        @details Désactive le bouton et démarre \c _fetch_lyrics_worker().
-        """
-        if not self.selected_file:
-            messagebox.showinfo("Info", "Aucun fichier sélectionné.")
-            return
-
-        self.btn_show_lyrics.config(text="Recherche en cours...", state=tk.DISABLED)
-        self.update()
-
-        metadata_to_fetch = self.selected_file  # ✅ C'est déjà un objet Metadata
-        
-        threading.Thread(target=lambda: self._fetch_lyrics_worker(metadata_to_fetch), daemon=True).start()
+            # 2. Renommer sur le disque
+            os.rename(old_path, new_path)
             
-if __name__ == "__main__":
-    # L'initialisation de Pygame est nécessaire si la lecture audio est utilisée
-    try:
-        pygame.init()
-        pygame.mixer.init()
-    except Exception as e:
-        print(f"Avertissement : Pygame/Mixer non initialisé. La lecture audio pourrait ne pas fonctionner. Erreur: {e}")
+            # 3. Mettre à jour l'objet en mémoire
+            self.selected_audio.path = new_path
+            # Important : mettre à jour le chemin dans les métadonnées aussi pour l'affichage
+            self.selected_audio.metadata.file_path = new_path 
+            
+            # 4. Rafraîchir l'interface
+            self.view.update_file_list(self.current_directory.files)
+            self.view.show_message("Succès", f"Fichier renommé en : {new_name}")
+            
+        except OSError as e:
+            self.view.show_message("Erreur", f"Impossible de renommer le fichier.\nVérifiez qu'il n'existe pas déjà.\n{e}", is_error=True)
+
+    def _start_new_song(self, path):
+        """Lance une nouvelle musique (Remise à zéro de la pause)"""
+        self.audio_service.play(path)
+        self.is_paused = False # Important : on n'est plus en pause
         
-    app = Gui()
-    app.mainloop()
+        # Mise à jour UI
+        meta = self.selected_audio.metadata
+        self.view.update_footer("Lecture en cours...", title=meta.title, artist=meta.artist)
+        
+        # On lance le compteur de temps
+        self.check_time_loop()
+
+    # Dans controler/maincontroler.py
+
+    def handle_open_playlist(self):
+        """Ouvre une playlist XSPF et la charge dans l'interface"""
+        # 1. Demander le fichier
+        path = self.view.ask_open_playlist()
+        if not path: return
+
+        # 2. Parser le fichier via le Modèle
+        # On utilise la méthode statique qu'on vient de créer
+        new_files = Directory.parse_xspf_playlist(path)
+        
+        if new_files:
+            # 3. Remplacer la playlist actuelle (ou self.playlist.extend(new_files) pour ajouter)
+            self.playlist = new_files
+            
+            # 4. Mettre à jour l'interface
+            self.view.update_playlist_view(self.playlist)
+            self.view.show_message("Succès", f"Playlist chargée : {len(new_files)} titres.")
+            self.view.update_footer(f"Playlist chargée ({len(new_files)} titres)")
+        else:
+            self.view.show_message("Info", "La playlist semble vide ou les fichiers ont été déplacés.", is_error=True)
